@@ -105,9 +105,18 @@ class SimulationBranch:
         """
         Compute a single composite desirability score.
 
-        Higher is better.  The formula weights gain, alignment, and
-        reversibility positively, and penalises regret, drift risk, energy
-        cost, and low completion probability.
+        Higher is better.  The formula weights gain, alignment, reversibility,
+        and completion probability positively, and penalises regret, identity
+        drift risk, and energy cost.
+
+        Weight breakdown (positive → negative):
+            predicted_gain        +0.25
+            long_arc_alignment    +0.25
+            reversibility         +0.15
+            completion_probability+0.15
+            predicted_regret      −0.10
+            identity_drift_risk   −0.10
+            energy_cost           −0.05
         """
         return (
             self.predicted_gain * 0.25
@@ -116,6 +125,7 @@ class SimulationBranch:
             + self.completion_probability * 0.15
             - self.predicted_regret * 0.10
             - self.identity_drift_risk * 0.10
+            - self.energy_cost * 0.05
         )
 
     def to_dict(self) -> dict:
@@ -271,7 +281,17 @@ class SimulationVerifier:
         correct?", it asks whether the intervention moved the long arc
         forward and preserved identity integrity.
 
-        Returns a structured reflection report.
+        The returned ``quality_score`` is in the range ``[-1.0, 1.0]``:
+
+        * ``+1.0`` — all assessed dimensions had positive outcomes.
+        * ``0.0``  — no dimensions assessed, or outcomes cancel out.
+        * ``-1.0`` — all assessed dimensions had negative outcomes
+          (e.g. values distorted, all other flags False).
+
+        Negative scores are semantically meaningful: they indicate the
+        intervention actively harmed alignment, discipline, or intent.
+
+        Returns a structured reflection report dict.
         """
         # Positive indicators: presence of good outcomes
         positive_flags = [reduced_confusion, strengthened_discipline, preserved_intent, advanced_long_arc]
