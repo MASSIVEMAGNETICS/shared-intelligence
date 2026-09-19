@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "repositories": [
+    "MASSIVEMAGNETICS/victorOS",
+    "MASSIVEMAGNETICS/victor_empire",
+    "MASSIVEMAGNETICS/shared-intelligence",
+    "MASSIVEMAGNETICS/suno-killer"
+  ],
+  "intent_graph_snapshot": "state/intent_graph.json",
+  "max_active": 3,
+  "policy": {
+    "activate_top": true,
+    "revenue_weight": 0.18,
+    "deployment_weight": 0.12,
+    "queued_interrupt_threshold": 1.2
+  }
+}
