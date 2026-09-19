@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Literal, Optional
 
+from bando_sources import SourceObjective, github_pr_objectives, intent_graph_objectives
+
 State = Literal["QUEUED", "ACTIVE", "BLOCKED", "DONE", "ARCHIVED", "FAILED"]
 Stage = Literal["DISCOVERY", "BUILD", "VERIFY", "DEPLOY", "SELL", "OBSERVE", "SCALE"]
 
@@ -279,6 +281,79 @@ class BandoDriver:
             reasons.append("highest current priority score")
         return "; ".join(reasons)
 
+    def sync_sources(self, sources: Iterable[SourceObjective], *, activate_top: bool = True) -> dict:
+        imported = 0
+        updated = 0
+        for src in sources:
+            target_state: State = "BLOCKED" if src.blocker else "QUEUED"
+            if src.id in self.objectives:
+                obj = self.objectives[src.id]
+                if obj.state in TERMINAL_STATES:
+                    continue
+                obj.title = src.title
+                obj.next_action = src.next_action
+                obj.stage = src.stage  # type: ignore[assignment]
+                obj.value = src.value
+                obj.readiness = src.readiness
+                obj.evidence = src.evidence
+                obj.reversibility = src.reversibility
+                obj.leverage = src.leverage
+                obj.cost = src.cost
+                obj.delay = src.delay
+                obj.dependency = src.dependency
+                obj.revenue_potential = src.revenue_potential
+                obj.deployment_gap = src.deployment_gap
+                obj.evidence_ref = src.evidence_ref
+                if obj.state != "ACTIVE":
+                    obj.state = target_state
+                obj.blocker = src.blocker if obj.state == "BLOCKED" else None
+                obj.updated_at = datetime.now(timezone.utc).isoformat()
+                obj.validate()
+                updated += 1
+            else:
+                obj = Objective(
+                    id=src.id,
+                    title=src.title,
+                    next_action=src.next_action,
+                    state=target_state,
+                    stage=src.stage,  # type: ignore[arg-type]
+                    value=src.value,
+                    readiness=src.readiness,
+                    evidence=src.evidence,
+                    reversibility=src.reversibility,
+                    leverage=src.leverage,
+                    cost=src.cost,
+                    delay=src.delay,
+                    dependency=src.dependency,
+                    revenue_potential=src.revenue_potential,
+                    deployment_gap=src.deployment_gap,
+                    blocker=src.blocker,
+                    evidence_ref=src.evidence_ref,
+                )
+                obj.validate()
+                self.objectives[obj.id] = obj
+                imported += 1
+
+        if activate_top:
+            while len(self.active()) < self.max_active:
+                candidates = [
+                    o for o in self.rank(include_queued=True)
+                    if o.state == "QUEUED"
+                ]
+                if not candidates:
+                    break
+                winner = candidates[0]
+                winner.state = "ACTIVE"
+                winner.updated_at = datetime.now(timezone.utc).isoformat()
+
+        self._save()
+        return {
+            "imported": imported,
+            "updated": updated,
+            "active": [o.id for o in sorted(self.active(), key=lambda x: -x.score())],
+            "decision": self.decision() if self.rank(include_queued=True) else None,
+        }
+
     def status(self) -> dict:
         counts = {s: 0 for s in ["QUEUED", "ACTIVE", "BLOCKED", "DONE", "ARCHIVED", "FAILED"]}
         for obj in self.objectives.values():
@@ -308,6 +383,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("status")
     sub.add_parser("next")
+
+    sync = sub.add_parser("sync")
+    sync.add_argument("--github-repo", action="append", default=[])
+    sync.add_argument("--intent-graph")
+    sync.add_argument("--no-activate", action="store_true")
 
     add = sub.add_parser("add")
     add.add_argument("--id", required=True)
@@ -341,6 +421,17 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
 
     if args.cmd == "next":
         print(json.dumps(driver.decision(), indent=2, sort_keys=True))
+        return 0
+
+    if args.cmd == "sync":
+        sources: list[SourceObjective] = []
+        if args.github_repo:
+            sources.extend(github_pr_objectives(args.github_repo))
+        if args.intent_graph:
+            sources.extend(intent_graph_objectives(args.intent_graph))
+        if not sources:
+            raise DriverError("sync requires at least one --github-repo or --intent-graph source")
+        print(json.dumps(driver.sync_sources(sources, activate_top=not args.no_activate), indent=2, sort_keys=True))
         return 0
 
     if args.cmd == "add":
