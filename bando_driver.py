@@ -224,11 +224,13 @@ class BandoDriver:
         except KeyError as exc:
             raise ValidationError(f"unknown objective: {objective_id}") from exc
 
-    def rank(self, include_queued: bool = True, now: Optional[datetime] = None) -> List[Objective]:
+    def rank(self, include_queued: bool = True, include_blocked: bool = False, now: Optional[datetime] = None) -> List[Objective]:
         now = now or datetime.now(timezone.utc)
         allowed = {"ACTIVE"}
         if include_queued:
             allowed.add("QUEUED")
+        if include_blocked:
+            allowed.add("BLOCKED")
         candidates = [
             o for o in self.objectives.values()
             if o.state in allowed and not o.quarantined(now)
@@ -238,6 +240,9 @@ class BandoDriver:
     def next(self, now: Optional[datetime] = None) -> Objective:
         ranked = self.rank(include_queued=True, now=now)
         if not ranked:
+            blocked = self.rank(include_queued=False, include_blocked=True, now=now)
+            if blocked:
+                return blocked[0]
             raise DriverError("no executable objective available")
 
         # Active work wins unless queued work materially dominates by >=20%.
@@ -260,7 +265,7 @@ class BandoDriver:
             "stage": chosen.stage,
             "score": round(chosen.score(), 6),
             "next_action": chosen.next_action,
-            "reason": self._reason(chosen),
+            "reason": ("resolve blocker: " + (chosen.blocker or "blocked objective")) if chosen.state == "BLOCKED" else self._reason(chosen),
             "active_count": len(self.active()),
             "max_active": self.max_active,
         }
@@ -351,7 +356,7 @@ class BandoDriver:
             "imported": imported,
             "updated": updated,
             "active": [o.id for o in sorted(self.active(), key=lambda x: -x.score())],
-            "decision": self.decision() if self.rank(include_queued=True) else None,
+            "decision": self.decision() if self.rank(include_queued=True, include_blocked=True) else None,
         }
 
     def status(self) -> dict:
