@@ -388,6 +388,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--github-repo", action="append", default=[])
     sync.add_argument("--intent-graph")
     sync.add_argument("--no-activate", action="store_true")
+    sync.add_argument("--config")
 
     add = sub.add_parser("add")
     add.add_argument("--id", required=True)
@@ -425,13 +426,28 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
 
     if args.cmd == "sync":
         sources: list[SourceObjective] = []
-        if args.github_repo:
-            sources.extend(github_pr_objectives(args.github_repo))
-        if args.intent_graph:
-            sources.extend(intent_graph_objectives(args.intent_graph))
+        repos = list(args.github_repo)
+        intent_path = args.intent_graph
+        activate_top = not args.no_activate
+        if args.config:
+            cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
+            if cfg.get("schema_version") != 1:
+                raise DriverError("unsupported stack config schema_version")
+            repos.extend(str(x) for x in cfg.get("repositories", []))
+            configured_intent = cfg.get("intent_graph_snapshot")
+            if configured_intent and not intent_path and Path(configured_intent).exists():
+                intent_path = configured_intent
+            if isinstance(cfg.get("max_active"), int):
+                driver.max_active = cfg["max_active"]
+            activate_top = bool(cfg.get("policy", {}).get("activate_top", activate_top)) and not args.no_activate
+        repos = list(dict.fromkeys(repos))
+        if repos:
+            sources.extend(github_pr_objectives(repos))
+        if intent_path:
+            sources.extend(intent_graph_objectives(intent_path))
         if not sources:
-            raise DriverError("sync requires at least one --github-repo or --intent-graph source")
-        print(json.dumps(driver.sync_sources(sources, activate_top=not args.no_activate), indent=2, sort_keys=True))
+            raise DriverError("sync found no source objectives")
+        print(json.dumps(driver.sync_sources(sources, activate_top=activate_top), indent=2, sort_keys=True))
         return 0
 
     if args.cmd == "add":
