@@ -107,3 +107,24 @@ def test_github_pr_source_uses_gh_json(monkeypatch):
     assert rows[0].stage == "DEPLOY"
     assert rows[0].revenue_potential == 5
     assert rows[0].blocker is not None
+
+
+def test_next_falls_back_to_highest_value_blocker(tmp_path):
+    d = BandoDriver(tmp_path / "r.json", max_active=3)
+    low = SourceObjective(
+        id="x:low", title="Low blocker", next_action="resolve low", stage="VERIFY",
+        value=2, readiness=2, evidence=2, reversibility=3, leverage=2,
+        cost=3, delay=3, dependency=3, revenue_potential=0, deployment_gap=0,
+        blocker="low-value gate",
+    )
+    high = SourceObjective(
+        id="x:high", title="High blocker", next_action="resolve high", stage="DEPLOY",
+        value=5, readiness=5, evidence=5, reversibility=5, leverage=5,
+        cost=1, delay=1, dependency=1, revenue_potential=5, deployment_gap=5,
+        blocker="high-value gate",
+    )
+    d.sync_sources([low, high])
+    decision = d.decision()
+    assert decision["objective_id"] == "x:high"
+    assert decision["state"] == "BLOCKED"
+    assert decision["reason"].startswith("resolve blocker:")
