@@ -9,6 +9,7 @@ from bando_driver import (
     Objective,
     ValidationError,
 )
+from bando_sources import SourceObjective
 
 
 def make_obj(i: str, **kw):
@@ -127,3 +128,90 @@ def test_registry_is_valid_json(tmp_path):
 def test_invalid_numeric_bounds_rejected():
     with pytest.raises(ValidationError):
         make_obj("bad", value=6).validate()
+
+
+def test_sync_revokes_active_when_source_becomes_blocked(tmp_path):
+    d = BandoDriver(tmp_path / "r.json", max_active=3)
+    source = SourceObjective(
+        id="github:MASSIVEMAGNETICS/victorOS:pr:17",
+        title="VictorOS PR #17",
+        next_action="review exact head",
+        stage="VERIFY",
+        value=5,
+        readiness=5,
+        evidence=5,
+        reversibility=5,
+        leverage=5,
+        cost=1,
+        delay=1,
+        dependency=1,
+        revenue_potential=0,
+        deployment_gap=5,
+    )
+    d.sync_sources([source])
+    assert d.require(source.id).state == "ACTIVE"
+
+    blocked = SourceObjective(
+        id=source.id,
+        title=source.title,
+        next_action="satisfy draft gate",
+        stage="VERIFY",
+        value=5,
+        readiness=3,
+        evidence=5,
+        reversibility=5,
+        leverage=5,
+        cost=1,
+        delay=1,
+        dependency=1,
+        revenue_potential=0,
+        deployment_gap=5,
+        blocker="PR is draft; approval required",
+    )
+    d.sync_sources([blocked])
+
+    obj = d.require(source.id)
+    assert obj.state == "BLOCKED"
+    assert obj.blocker == "PR is draft; approval required"
+    assert obj.id not in [x.id for x in d.active()]
+
+
+def test_sync_preserves_active_when_source_remains_unblocked(tmp_path):
+    d = BandoDriver(tmp_path / "r.json", max_active=3)
+    source = SourceObjective(
+        id="intent:ship-victor",
+        title="Ship Victor",
+        next_action="install exact APK",
+        stage="DEPLOY",
+        value=5,
+        readiness=5,
+        evidence=5,
+        reversibility=5,
+        leverage=5,
+        cost=1,
+        delay=1,
+        dependency=1,
+        revenue_potential=0,
+        deployment_gap=5,
+    )
+    d.sync_sources([source])
+    assert d.require(source.id).state == "ACTIVE"
+
+    refreshed = SourceObjective(
+        id=source.id,
+        title=source.title,
+        next_action="install exact APK on target phone",
+        stage="DEPLOY",
+        value=5,
+        readiness=5,
+        evidence=5,
+        reversibility=5,
+        leverage=5,
+        cost=1,
+        delay=1,
+        dependency=1,
+        revenue_potential=0,
+        deployment_gap=5,
+    )
+    d.sync_sources([refreshed])
+    assert d.require(source.id).state == "ACTIVE"
