@@ -101,7 +101,9 @@ def test_github_pr_source_uses_gh_json(monkeypatch):
         "html_url": "https://example/pr/8",
     }]]
 
-    monkeypatch.setattr(bando_sources, "_run_gh", lambda args: payload)
+    detail = dict(payload[0][0])
+    calls = iter([payload, detail])
+    monkeypatch.setattr(bando_sources, "_run_gh", lambda args: next(calls))
     rows = bando_sources.github_pr_objectives(["MASSIVEMAGNETICS/victor_empire"])
     assert rows[0].id.endswith(":pr:8")
     assert rows[0].stage == "DEPLOY"
@@ -128,3 +130,48 @@ def test_next_falls_back_to_highest_value_blocker(tmp_path):
     assert decision["objective_id"] == "x:high"
     assert decision["state"] == "BLOCKED"
     assert decision["reason"].startswith("resolve blocker:")
+
+
+def test_github_pr_unknown_mergeability_fails_closed(monkeypatch):
+    listed = [[{
+        "number": 9,
+        "draft": False,
+        "title": "Ready-looking change",
+        "body": "deploy production",
+        "labels": [],
+        "head": {"sha": "abc"},
+        "html_url": "https://example/pr/9",
+    }]]
+    detail = dict(listed[0][0])
+    detail["mergeable"] = None
+    calls = iter([listed, detail])
+    monkeypatch.setattr(bando_sources, "_run_gh", lambda args: next(calls))
+
+    rows = bando_sources.github_pr_objectives(["MASSIVEMAGNETICS/victorOS"])
+
+    assert len(rows) == 1
+    assert rows[0].blocker is not None
+    assert "unknown" in rows[0].blocker.lower()
+    assert rows[0].next_action.startswith("Verify mergeability")
+
+
+def test_github_pr_uses_authoritative_detail_not_collection_mergeability(monkeypatch):
+    listed = [[{
+        "number": 10,
+        "draft": False,
+        "mergeable": True,
+        "title": "Apparently mergeable",
+        "body": "release",
+        "labels": [],
+        "head": {"sha": "abc"},
+        "html_url": "https://example/pr/10",
+    }]]
+    detail = dict(listed[0][0])
+    detail["mergeable"] = False
+    calls = iter([listed, detail])
+    monkeypatch.setattr(bando_sources, "_run_gh", lambda args: next(calls))
+
+    rows = bando_sources.github_pr_objectives(["MASSIVEMAGNETICS/victorOS"])
+
+    assert rows[0].blocker is not None
+    assert "not mergeable" in rows[0].blocker.lower()
