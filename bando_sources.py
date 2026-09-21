@@ -64,8 +64,14 @@ def github_pr_objectives(repositories: Iterable[str]) -> list[SourceObjective]:
             "--slurp",
         ])
         flat = [pr for page in prs for pr in page] if prs and isinstance(prs[0], list) else prs
-        for pr in flat:
-            number = int(pr["number"])
+        for listed_pr in flat:
+            number = int(listed_pr["number"])
+            # The collection endpoint is discovery-only. Fields such as
+            # mergeable are not authoritative there, so enrich every PR from
+            # the single-PR endpoint before it can influence activation.
+            pr = _run_gh(["api", f"repos/{repo}/pulls/{number}"])
+            if not isinstance(pr, dict) or int(pr.get("number", -1)) != number:
+                raise SourceError(f"incomplete PR detail for {repo}#{number}")
             draft = bool(pr.get("draft"))
             mergeable = pr.get("mergeable")
             title = str(pr.get("title") or f"PR #{number}")
@@ -87,6 +93,9 @@ def github_pr_objectives(repositories: Iterable[str]) -> list[SourceObjective]:
             elif mergeable is False:
                 blocker = "PR is not mergeable; resolve conflicts or branch divergence"
                 next_action = f"Resolve mergeability for {repo} PR #{number}"
+            elif mergeable is not True:
+                blocker = "PR mergeability is unknown; authoritative detail did not prove it mergeable"
+                next_action = f"Verify mergeability for {repo} PR #{number}"
 
             out.append(SourceObjective(
                 id=f"github:{repo}:pr:{number}",
