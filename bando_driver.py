@@ -309,7 +309,13 @@ class BandoDriver:
                 obj.revenue_potential = src.revenue_potential
                 obj.deployment_gap = src.deployment_gap
                 obj.evidence_ref = src.evidence_ref
-                if obj.state != "ACTIVE":
+                # Fresh source authority overrides stale ACTIVE state. If the
+                # upstream PR/intent becomes blocked, the driver must revoke
+                # executability immediately rather than preserving yesterday's
+                # ACTIVE permission.
+                if src.blocker:
+                    obj.state = "BLOCKED"
+                elif obj.state != "ACTIVE":
                     obj.state = target_state
                 obj.blocker = src.blocker if obj.state == "BLOCKED" else None
                 obj.updated_at = datetime.now(timezone.utc).isoformat()
