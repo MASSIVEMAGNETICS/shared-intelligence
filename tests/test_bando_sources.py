@@ -5,7 +5,7 @@ import pytest
 
 import bando_sources
 from bando_driver import BandoDriver
-from bando_sources import SourceObjective, intent_graph_objectives
+from bando_sources import SourceError, SourceObjective, intent_graph_objectives
 
 
 def test_intent_graph_source_import(tmp_path):
@@ -175,3 +175,49 @@ def test_github_pr_uses_authoritative_detail_not_collection_mergeability(monkeyp
 
     assert rows[0].blocker is not None
     assert "not mergeable" in rows[0].blocker.lower()
+
+
+def test_github_source_query_failure_never_returns_partial_authoritative_snapshot(monkeypatch):
+    first_repo = [[{
+        "number": 1,
+        "draft": False,
+        "mergeable": True,
+        "title": "Healthy PR",
+        "body": "verify",
+        "labels": [],
+        "head": {"sha": "abc"},
+        "html_url": "https://example/pr/1",
+    }]]
+    first_detail = dict(first_repo[0][0])
+    calls = iter([first_repo, first_detail, SourceError("simulated GitHub auth/network failure")])
+
+    def fake_run_gh(args):
+        value = next(calls)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    monkeypatch.setattr(bando_sources, "_run_gh", fake_run_gh)
+
+    with pytest.raises(SourceError, match="simulated GitHub auth/network failure"):
+        bando_sources.github_pr_objectives([
+            "MASSIVEMAGNETICS/victorOS",
+            "MASSIVEMAGNETICS/victor_empire",
+        ])
+
+
+def test_incomplete_pr_detail_aborts_snapshot_instead_of_failing_open(monkeypatch):
+    listed = [[{
+        "number": 12,
+        "draft": False,
+        "title": "Incomplete detail",
+        "body": "deploy",
+        "labels": [],
+        "head": {"sha": "abc"},
+        "html_url": "https://example/pr/12",
+    }]]
+    calls = iter([listed, {"number": 999}])
+    monkeypatch.setattr(bando_sources, "_run_gh", lambda args: next(calls))
+
+    with pytest.raises(SourceError, match="incomplete PR detail"):
+        bando_sources.github_pr_objectives(["MASSIVEMAGNETICS/victorOS"])
