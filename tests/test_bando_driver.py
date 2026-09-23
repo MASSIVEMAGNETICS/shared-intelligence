@@ -18,7 +18,7 @@ def source_obj(i: str, blocker=None):
 
 
 def test_wip_limit_blocks_fourth_active(tmp_path):
-    d=BandoDriver(tmp_path/"registry.json",max_active=3)
+    path=tmp_path/"registry.json"; d=BandoDriver(path,max_active=3)
     for i in ("a","b","c"): d.add(make_obj(i),activate=True)
     with pytest.raises(CapacityError): d.add(make_obj("d"),activate=True)
 
@@ -98,3 +98,16 @@ def test_authoritative_scope_does_not_revoke_other_repo(tmp_path):
     d.sync_sources([],authoritative_prefixes=["github:MASSIVEMAGNETICS/victorOS:pr:"])
     assert d.require(a.id).state=="BLOCKED"
     assert d.require(b.id)==d.require(b.id) and d.require(b.id).state=="ACTIVE"
+
+
+def test_stale_writer_cannot_silently_erase_concurrent_registry_update(tmp_path):
+    path=tmp_path/"registry.json"
+    seed=BandoDriver(path); seed.add(make_obj("seed"))
+
+    first=BandoDriver(path)
+    stale=BandoDriver(path)
+    first.add(make_obj("first"))
+    stale.add(make_obj("stale"))
+
+    final=BandoDriver(path)
+    assert set(final.objectives) == {"seed", "first", "stale"}
