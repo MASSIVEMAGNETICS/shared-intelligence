@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+import bando_driver
 from bando_driver import BandoDriver, CapacityError, Objective, ValidationError
 from bando_sources import SourceObjective
 
@@ -111,3 +112,25 @@ def test_stale_writer_cannot_silently_erase_concurrent_registry_update(tmp_path)
 
     final=BandoDriver(path)
     assert set(final.objectives) == {"seed", "first", "stale"}
+
+
+def test_mutation_fails_closed_without_platform_lock(monkeypatch, tmp_path):
+    monkeypatch.setattr(bando_driver, "fcntl", None)
+    monkeypatch.setattr(bando_driver, "msvcrt", None)
+    path=tmp_path/"registry.json"
+
+    with pytest.raises(bando_driver.DriverError, match="no supported inter-process registry lock"):
+        BandoDriver(path).add(make_obj("unsafe"))
+
+    assert not path.exists()
+
+
+def test_failed_mutation_releases_lock_and_preserves_latest_registry(tmp_path):
+    path=tmp_path/"registry.json"
+    first=BandoDriver(path); first.add(make_obj("first"))
+
+    with pytest.raises(ValidationError):
+        first.add(make_obj("invalid", cost=0))
+
+    BandoDriver(path).add(make_obj("second"))
+    assert set(BandoDriver(path).objectives) == {"first", "second"}
