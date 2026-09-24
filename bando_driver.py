@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import math
 import os
@@ -9,6 +10,16 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Literal, Optional
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - exercised on Windows
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - exercised on POSIX
+    msvcrt = None
 
 from bando_sources import SourceObjective, github_pr_objectives, intent_graph_objectives
 
@@ -80,15 +91,46 @@ class BandoDriver:
         if max_active < 1: raise ValidationError("max_active must be >= 1")
         self.registry_path = Path(registry_path); self.max_active=max_active; self.objectives: Dict[str,Objective]={}; self._load()
 
-    def _load(self) -> None:
-        if not self.registry_path.exists(): return
+    def _load(self, *, load_policy: bool = True) -> None:
+        if not self.registry_path.exists():
+            self.objectives = {}
+            return
         raw=json.loads(self.registry_path.read_text(encoding="utf-8"))
         if raw.get("schema_version") != 1: raise ValidationError("unsupported registry schema_version")
-        self.max_active=int(raw.get("max_active",self.max_active))
+        if load_policy: self.max_active=int(raw.get("max_active",self.max_active))
+        loaded: Dict[str,Objective]={}
         for item in raw.get("objectives",[]):
             obj=Objective(**item); obj.validate()
-            if obj.id in self.objectives: raise ValidationError(f"duplicate objective id: {obj.id}")
-            self.objectives[obj.id]=obj
+            if obj.id in loaded: raise ValidationError(f"duplicate objective id: {obj.id}")
+            loaded[obj.id]=obj
+        self.objectives=loaded
+
+    @contextmanager
+    def _mutation(self):
+        """Serialize registry mutations and reconcile them against the latest state."""
+        self.registry_path.parent.mkdir(parents=True,exist_ok=True)
+        lock_path=self.registry_path.with_name(self.registry_path.name+".lock")
+        with lock_path.open("a+b") as lock_file:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(),fcntl.LOCK_EX)
+            elif msvcrt is not None:  # pragma: no cover - exercised on Windows
+                lock_file.seek(0,os.SEEK_END)
+                if lock_file.tell()==0:
+                    lock_file.write(b"\0"); lock_file.flush()
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(),msvcrt.LK_LOCK,1)
+            else:  # pragma: no cover - unsupported platform
+                raise DriverError("no supported inter-process registry lock")
+            try:
+                self._load(load_policy=False)
+                yield
+                self._save()
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(lock_file.fileno(),fcntl.LOCK_UN)
+                elif msvcrt is not None:  # pragma: no cover - exercised on Windows
+                    lock_file.seek(0)
+                    msvcrt.locking(lock_file.fileno(),msvcrt.LK_UNLCK,1)
 
     def _save(self) -> None:
         payload={"schema_version":1,"max_active":self.max_active,"updated_at":datetime.now(timezone.utc).isoformat(),"objectives":[asdict(o) for o in sorted(self.objectives.values(),key=lambda x:x.id)]}
@@ -103,29 +145,35 @@ class BandoDriver:
 
     def active(self)->List[Objective]: return [o for o in self.objectives.values() if o.state=="ACTIVE"]
     def add(self,objective:Objective,activate:bool=False)->Objective:
-        if objective.id in self.objectives: raise ValidationError(f"objective already exists: {objective.id}")
-        objective.validate()
-        if activate: self._assert_capacity(); objective.state="ACTIVE"
-        self.objectives[objective.id]=objective; self._save(); return objective
+        with self._mutation():
+            if objective.id in self.objectives: raise ValidationError(f"objective already exists: {objective.id}")
+            objective.validate()
+            if activate: self._assert_capacity(); objective.state="ACTIVE"
+            self.objectives[objective.id]=objective
+        return objective
     def _assert_capacity(self,excluding:Optional[str]=None)->None:
         if sum(1 for o in self.active() if o.id!=excluding)>=self.max_active: raise CapacityError(f"active WIP limit reached ({self.max_active}); close/block/archive one objective first")
     def set_state(self,objective_id:str,state:State,*,blocker:Optional[str]=None,evidence_ref:Optional[str]=None,next_action:Optional[str]=None)->Objective:
-        obj=self.require(objective_id)
-        if state=="ACTIVE" and obj.state!="ACTIVE": self._assert_capacity(excluding=obj.id)
-        if state=="BLOCKED" and not blocker: raise ValidationError("BLOCKED state requires blocker")
-        if state in TERMINAL_STATES and not evidence_ref: raise ValidationError(f"{state} requires evidence_ref")
-        obj.state=state; obj.blocker=blocker if state=="BLOCKED" else None
-        if evidence_ref is not None: obj.evidence_ref=evidence_ref
-        if next_action is not None: obj.next_action=next_action
-        if state in TERMINAL_STATES: obj.next_action=""
-        obj.updated_at=datetime.now(timezone.utc).isoformat(); obj.validate(); self._save(); return obj
+        with self._mutation():
+            obj=self.require(objective_id)
+            if state=="ACTIVE" and obj.state!="ACTIVE": self._assert_capacity(excluding=obj.id)
+            if state=="BLOCKED" and not blocker: raise ValidationError("BLOCKED state requires blocker")
+            if state in TERMINAL_STATES and not evidence_ref: raise ValidationError(f"{state} requires evidence_ref")
+            obj.state=state; obj.blocker=blocker if state=="BLOCKED" else None
+            if evidence_ref is not None: obj.evidence_ref=evidence_ref
+            if next_action is not None: obj.next_action=next_action
+            if state in TERMINAL_STATES: obj.next_action=""
+            obj.updated_at=datetime.now(timezone.utc).isoformat(); obj.validate()
+        return obj
     def update(self,objective_id:str,**changes)->Objective:
-        obj=self.require(objective_id); bad={"id","created_at"}.intersection(changes)
-        if bad: raise ValidationError(f"immutable fields: {sorted(bad)}")
-        for key,value in changes.items():
-            if not hasattr(obj,key): raise ValidationError(f"unknown field: {key}")
-            setattr(obj,key,value)
-        obj.updated_at=datetime.now(timezone.utc).isoformat(); obj.validate(); self._save(); return obj
+        with self._mutation():
+            obj=self.require(objective_id); bad={"id","created_at"}.intersection(changes)
+            if bad: raise ValidationError(f"immutable fields: {sorted(bad)}")
+            for key,value in changes.items():
+                if not hasattr(obj,key): raise ValidationError(f"unknown field: {key}")
+                setattr(obj,key,value)
+            obj.updated_at=datetime.now(timezone.utc).isoformat(); obj.validate()
+        return obj
     def require(self,objective_id:str)->Objective:
         try: return self.objectives[objective_id]
         except KeyError as exc: raise ValidationError(f"unknown objective: {objective_id}") from exc
@@ -158,37 +206,39 @@ class BandoDriver:
         return "; ".join(reasons or ["highest current priority score"])
 
     def sync_sources(self,sources:Iterable[SourceObjective],*,activate_top:bool=True,authoritative_prefixes:Iterable[str]=())->dict:
-        sources=list(sources); imported=0; updated=0; seen={src.id for src in sources}; prefixes=tuple(authoritative_prefixes)
-        for src in sources:
-            target_state:State="BLOCKED" if src.blocker else "QUEUED"
-            if src.id in self.objectives:
-                obj=self.objectives[src.id]
-                if obj.state in TERMINAL_STATES: continue
-                for name in ("title","next_action","stage","value","readiness","evidence","reversibility","leverage","cost","delay","dependency","revenue_potential","deployment_gap","evidence_ref"):
-                    setattr(obj,name,getattr(src,name))
-                if src.blocker: obj.state="BLOCKED"
-                elif obj.state!="ACTIVE": obj.state=target_state
-                obj.blocker=src.blocker if obj.state=="BLOCKED" else None
-                obj.updated_at=datetime.now(timezone.utc).isoformat(); obj.validate(); updated+=1
-            else:
-                obj=Objective(id=src.id,title=src.title,next_action=src.next_action,state=target_state,stage=src.stage,value=src.value,readiness=src.readiness,evidence=src.evidence,reversibility=src.reversibility,leverage=src.leverage,cost=src.cost,delay=src.delay,dependency=src.dependency,revenue_potential=src.revenue_potential,deployment_gap=src.deployment_gap,blocker=src.blocker,evidence_ref=src.evidence_ref)
-                obj.validate(); self.objectives[obj.id]=obj; imported+=1
-        # Absence is revocation only inside explicitly authoritative namespaces.
-        # Partial/ad-hoc sync calls pass no prefixes and therefore cannot revoke
-        # objectives they did not observe.
-        revoked_absent=[]
-        if prefixes:
-            for obj in self.objectives.values():
-                if obj.state in TERMINAL_STATES or obj.id in seen: continue
-                if any(obj.id.startswith(prefix) for prefix in prefixes):
-                    obj.state="BLOCKED"; obj.blocker="source absent from authoritative synchronization snapshot"; obj.next_action="Re-verify source existence and authority before reactivation"; obj.updated_at=datetime.now(timezone.utc).isoformat(); obj.validate(); revoked_absent.append(obj.id)
-        if activate_top:
-            while len(self.active())<self.max_active:
-                candidates=[o for o in self.rank(include_queued=True) if o.state=="QUEUED"]
-                if not candidates: break
-                winner=candidates[0]; winner.state="ACTIVE"; winner.updated_at=datetime.now(timezone.utc).isoformat()
-        self._save()
-        return {"imported":imported,"updated":updated,"revoked_absent":sorted(revoked_absent),"active":[o.id for o in sorted(self.active(),key=lambda x:-x.score())],"decision":self.decision() if self.rank(include_queued=True,include_blocked=True) else None}
+        sources=list(sources); prefixes=tuple(authoritative_prefixes)
+        with self._mutation():
+            imported=0; updated=0; seen={src.id for src in sources}
+            for src in sources:
+                target_state:State="BLOCKED" if src.blocker else "QUEUED"
+                if src.id in self.objectives:
+                    obj=self.objectives[src.id]
+                    if obj.state in TERMINAL_STATES: continue
+                    for name in ("title","next_action","stage","value","readiness","evidence","reversibility","leverage","cost","delay","dependency","revenue_potential","deployment_gap","evidence_ref"):
+                        setattr(obj,name,getattr(src,name))
+                    if src.blocker: obj.state="BLOCKED"
+                    elif obj.state!="ACTIVE": obj.state=target_state
+                    obj.blocker=src.blocker if obj.state=="BLOCKED" else None
+                    obj.updated_at=datetime.now(timezone.utc).isoformat(); obj.validate(); updated+=1
+                else:
+                    obj=Objective(id=src.id,title=src.title,next_action=src.next_action,state=target_state,stage=src.stage,value=src.value,readiness=src.readiness,evidence=src.evidence,reversibility=src.reversibility,leverage=src.leverage,cost=src.cost,delay=src.delay,dependency=src.dependency,revenue_potential=src.revenue_potential,deployment_gap=src.deployment_gap,blocker=src.blocker,evidence_ref=src.evidence_ref)
+                    obj.validate(); self.objectives[obj.id]=obj; imported+=1
+            # Absence is revocation only inside explicitly authoritative namespaces.
+            # Partial/ad-hoc sync calls pass no prefixes and therefore cannot revoke
+            # objectives they did not observe.
+            revoked_absent=[]
+            if prefixes:
+                for obj in self.objectives.values():
+                    if obj.state in TERMINAL_STATES or obj.id in seen: continue
+                    if any(obj.id.startswith(prefix) for prefix in prefixes):
+                        obj.state="BLOCKED"; obj.blocker="source absent from authoritative synchronization snapshot"; obj.next_action="Re-verify source existence and authority before reactivation"; obj.updated_at=datetime.now(timezone.utc).isoformat(); obj.validate(); revoked_absent.append(obj.id)
+            if activate_top:
+                while len(self.active())<self.max_active:
+                    candidates=[o for o in self.rank(include_queued=True) if o.state=="QUEUED"]
+                    if not candidates: break
+                    winner=candidates[0]; winner.state="ACTIVE"; winner.updated_at=datetime.now(timezone.utc).isoformat()
+            result={"imported":imported,"updated":updated,"revoked_absent":sorted(revoked_absent),"active":[o.id for o in sorted(self.active(),key=lambda x:-x.score())],"decision":self.decision() if self.rank(include_queued=True,include_blocked=True) else None}
+        return result
 
     def status(self)->dict:
         counts={s:0 for s in ["QUEUED","ACTIVE","BLOCKED","DONE","ARCHIVED","FAILED"]}
