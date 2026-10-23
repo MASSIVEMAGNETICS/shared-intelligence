@@ -5,8 +5,10 @@ on:
       - '.github/workflows/daily-empire-maintenance.yml'
       - 'bando_driver.py'
       - 'bando_sources.py'
+      - 'maintenance_decision.py'
       - 'tests/test_bando_driver.py'
       - 'tests/test_bando_sources.py'
+      - 'tests/test_maintenance_decision.py'
   workflow_dispatch:
   schedule:
     - cron: "17 12 * * *"
@@ -26,11 +28,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Verify existing BANDO_DRIVER
+      - name: Verify existing BANDO_DRIVER and scheduled decision renderer
         run: |
-          python -m compileall -q bando_driver.py bando_sources.py
+          python -m compileall -q bando_driver.py bando_sources.py maintenance_decision.py
           python -m pip install pytest
-          python -m pytest -q tests/test_bando_driver.py tests/test_bando_sources.py
+          python -m pytest -q tests/test_bando_driver.py tests/test_bando_sources.py tests/test_maintenance_decision.py
       - name: Collect bounded objectives (no activation or writes)
         if: github.event_name != 'pull_request'
         env:
@@ -44,26 +46,7 @@ jobs:
             --github-repo MASSIVEMAGNETICS/victor_empire \
             --no-activate > maintenance-output/sync.json
           python bando_driver.py --registry maintenance-output/registry.json status > maintenance-output/status.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          root = Path('maintenance-output')
-          sync = json.loads((root / 'sync.json').read_text(encoding='utf-8'))
-          status = json.loads((root / 'status.json').read_text(encoding='utf-8'))
-          if not isinstance(sync, dict) or 'decision' not in sync:
-              raise ValueError('sync.json missing authoritative decision field')
-          if not isinstance(status, dict) or type(status.get('open_loops')) is not int:
-              raise ValueError('status.json missing integer open_loops')
-          decision = sync['decision']
-          if decision is None:
-              if status['open_loops'] != 0:
-                  raise ValueError('missing decision despite open objectives')
-              decision = {'status': 'NO_ACTIONABLE_OBJECTIVES', 'reason': 'no open objectives in synchronized registry'}
-          elif not isinstance(decision, dict) or not isinstance(decision.get('objective_id'), str) or not decision['objective_id']:
-              raise ValueError('invalid non-empty decision')
-          (root / 'next.json').write_text(json.dumps(decision, indent=2, sort_keys=True) + '\n', encoding='utf-8')
-          PY
+          python maintenance_decision.py
       - name: Upload inspection artifacts
         if: always()
         uses: actions/upload-artifact@v4
