@@ -1,0 +1,58 @@
+name: Daily Empire Maintenance (review-only)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/daily-empire-maintenance.yml'
+      - 'bando_driver.py'
+      - 'bando_sources.py'
+      - 'maintenance_decision.py'
+      - 'tests/test_bando_driver.py'
+      - 'tests/test_bando_sources.py'
+      - 'tests/test_maintenance_decision.py'
+      - 'tests/test_maintenance_collection.py'
+  workflow_dispatch:
+  schedule:
+    - cron: "17 12 * * *"
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+concurrency:
+  group: empire-maintenance-readonly
+  cancel-in-progress: false
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify existing BANDO_DRIVER and scheduled decision renderer
+        run: |
+          python -m compileall -q bando_driver.py bando_sources.py maintenance_decision.py
+          python -m pip install pytest
+          python -m pytest -q tests/test_bando_driver.py tests/test_bando_sources.py tests/test_maintenance_decision.py tests/test_maintenance_collection.py
+      - name: Collect bounded objectives (no activation or writes)
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p maintenance-output
+          python bando_driver.py --registry maintenance-output/registry.json sync \
+            --github-repo MASSIVEMAGNETICS/shared-intelligence \
+            --github-repo MASSIVEMAGNETICS/omni \
+            --github-repo MASSIVEMAGNETICS/victor_empire \
+            --no-activate > maintenance-output/sync.json
+          python bando_driver.py --registry maintenance-output/registry.json status > maintenance-output/status.json
+          python maintenance_decision.py
+      - name: Upload inspection artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: empire-maintenance-review-only
+          path: maintenance-output/
+          if-no-files-found: warn
+          retention-days: 14
