@@ -9,6 +9,7 @@ on:
       - 'tests/test_bando_driver.py'
       - 'tests/test_bando_sources.py'
       - 'tests/test_maintenance_decision.py'
+      - 'tests/test_maintenance_collection.py'
   workflow_dispatch:
   schedule:
     - cron: "17 12 * * *"
@@ -32,7 +33,7 @@ jobs:
         run: |
           python -m compileall -q bando_driver.py bando_sources.py maintenance_decision.py
           python -m pip install pytest
-          python -m pytest -q tests/test_bando_driver.py tests/test_bando_sources.py tests/test_maintenance_decision.py
+          python -m pytest -q tests/test_bando_driver.py tests/test_bando_sources.py tests/test_maintenance_decision.py tests/test_maintenance_collection.py
       - name: Collect bounded objectives (no activation or writes)
         if: github.event_name != 'pull_request'
         env:
