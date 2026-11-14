@@ -195,3 +195,15 @@ pytest tests/ -v
 | 4 | Co-adaptation | `SymbiosisModel` |
 | 5 | Reflection with self-correction | `SimulationVerifier` |
 | 6 | Continuity under rupture | `LegacyPersistenceLayer` |
+
+
+## Daily Empire Maintenance (review-only)
+
+The existing `bando_driver.py` scoring/synthesis function and `bando_sources.py` GitHub PR adapter remain the source of truth. The scheduled workflow reuses them; it does not introduce a second governor or activation path.
+
+- `bando_maintenance_sources.json` is the read-only workflow's single source list. It covers the active public Empire lanes: Shared Intelligence, VictorOS, victor_empire, omni, Dev-Ville, SUNOKILLER, suno-killer, The AI Ear, VICTOR-SSI, and the public website repository.
+- `SUNOKILLER` and `suno-killer` are deliberately separate entries; they are distinct repositories and are not consolidated.
+- The workflow passes both `--config bando_maintenance_sources.json` and `--no-activate`. The config also sets `policy.activate_top` to `false`. This collector may rank and render work, but it does not activate objectives, create branches, edit files, open PRs, merge, deploy, or publish releases.
+- The workflow uses the repository-scoped GitHub token with read-only permissions. Private `B_HEARD_STUDIO_LITE` is intentionally excluded; adding private sources requires a separately approved least-privilege read credential and workflow review. No secret is created or changed here.
+- Pull-request validation intentionally skips live collection. The scheduled/manual collection only runs from the default branch after the workflow is explicitly reviewed and merged; a green PR test run is not proof of live cross-repository collection or artifact production.
+- `bando_stack.json` is left unchanged. Its local stack activation policy is not the scheduled workflow's read-only policy.

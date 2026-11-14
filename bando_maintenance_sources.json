@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "repositories": [
+    "MASSIVEMAGNETICS/shared-intelligence",
+    "MASSIVEMAGNETICS/victorOS",
+    "MASSIVEMAGNETICS/victor_empire",
+    "MASSIVEMAGNETICS/omni",
+    "MASSIVEMAGNETICS/Dev-Ville",
+    "MASSIVEMAGNETICS/SUNOKILLER",
+    "MASSIVEMAGNETICS/suno-killer",
+    "MASSIVEMAGNETICS/the-ai-ear",
+    "MASSIVEMAGNETICS/VICTOR-SSI",
+    "MASSIVEMAGNETICS/MASSIVEMAGNETICS.github.io"
+  ],
+  "max_active": 3,
+  "policy": {
+    "activate_top": false
+  }
+}

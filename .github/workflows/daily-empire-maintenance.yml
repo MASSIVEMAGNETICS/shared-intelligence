@@ -5,6 +5,8 @@ on:
       - '.github/workflows/daily-empire-maintenance.yml'
       - 'bando_driver.py'
       - 'bando_sources.py'
+      - 'bando_maintenance_sources.json'
+      - 'README.md'
       - 'maintenance_decision.py'
       - 'tests/test_bando_driver.py'
       - 'tests/test_bando_sources.py'
@@ -42,9 +44,7 @@ jobs:
           set -euo pipefail
           mkdir -p maintenance-output
           python bando_driver.py --registry maintenance-output/registry.json sync \
-            --github-repo MASSIVEMAGNETICS/shared-intelligence \
-            --github-repo MASSIVEMAGNETICS/omni \
-            --github-repo MASSIVEMAGNETICS/victor_empire \
+            --config bando_maintenance_sources.json \
             --no-activate > maintenance-output/sync.json
           python bando_driver.py --registry maintenance-output/registry.json status > maintenance-output/status.json
           python maintenance_decision.py

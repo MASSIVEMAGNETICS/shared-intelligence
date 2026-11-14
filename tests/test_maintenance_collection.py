@@ -13,11 +13,9 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-REPOS = (
-    "MASSIVEMAGNETICS/shared-intelligence",
-    "MASSIVEMAGNETICS/omni",
-    "MASSIVEMAGNETICS/victor_empire",
-)
+CONFIG_PATH = REPO_ROOT / "bando_maintenance_sources.json"
+CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+REPOS = tuple(CONFIG["repositories"])
 
 FAKE_GH = '''#!/usr/bin/env python3
 import json
@@ -79,10 +77,8 @@ def _fixture(tmp_path: Path, scenario: str, denied_repo: str | None = None):
         env["FAKE_GH_DENY_REPO"] = denied_repo
     registry = tmp_path / "registry.json"
     sync_command = [sys.executable, str(REPO_ROOT / "bando_driver.py"),
-                    "--registry", str(registry), "sync"]
-    for repo in REPOS:
-        sync_command.extend(["--github-repo", repo])
-    sync_command.append("--no-activate")
+                    "--registry", str(registry), "sync",
+                    "--config", str(CONFIG_PATH), "--no-activate"]
     return env, registry, sync_command
 
 
@@ -132,3 +128,29 @@ def test_scheduled_collection_denied_repository_fails_without_partial_registry(t
     assert "synthetic GitHub access denied" in result.stderr
     assert not registry.exists(), "partial authoritative snapshots must not be committed"
     assert not result.stdout.strip(), "a failed collection must not emit a success snapshot"
+
+
+def test_maintenance_source_config_is_bounded_and_read_only():
+    assert CONFIG["schema_version"] == 1
+    assert REPOS
+    assert len(REPOS) == len(set(REPOS))
+    assert all(repo.startswith("MASSIVEMAGNETICS/") for repo in REPOS)
+    assert CONFIG["max_active"] == 3
+    assert CONFIG["policy"]["activate_top"] is False
+    # The scheduled workflow uses the repository-scoped token. Private repos
+    # remain excluded until an explicitly approved read-only credential exists.
+    assert "MASSIVEMAGNETICS/B_HEARD_STUDIO_LITE" not in REPOS
+    # Similar names are separate projects and must remain separate sources.
+    assert "MASSIVEMAGNETICS/SUNOKILLER" in REPOS
+    assert "MASSIVEMAGNETICS/suno-killer" in REPOS
+
+
+def test_workflow_uses_canonical_read_only_source_config():
+    workflow = (REPO_ROOT / ".github" / "workflows" / "daily-empire-maintenance.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "--config bando_maintenance_sources.json" in workflow
+    assert "--no-activate" in workflow
+    assert "contents: read" in workflow
+    assert "pull-requests: read" in workflow
+    assert "if: github.event_name != 'pull_request'" in workflow
