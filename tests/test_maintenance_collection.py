@@ -140,9 +140,9 @@ def test_maintenance_source_config_is_bounded_and_read_only():
     # The scheduled workflow uses the repository-scoped token. Private repos
     # remain excluded until an explicitly approved read-only credential exists.
     assert "MASSIVEMAGNETICS/B_HEARD_STUDIO_LITE" not in REPOS
-    # Similar names are separate projects and must remain separate sources.
+    # The public and private similarly named projects are distinct.
     assert "MASSIVEMAGNETICS/SUNOKILLER" in REPOS
-    assert "MASSIVEMAGNETICS/suno-killer" in REPOS
+    assert "MASSIVEMAGNETICS/suno-killer" not in REPOS
 
 
 def test_workflow_uses_canonical_read_only_source_config():
