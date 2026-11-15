@@ -63,7 +63,7 @@ class Objective:
         if not self.next_action.strip() and self.state not in TERMINAL_STATES: raise ValidationError("open objective requires next_action")
         for name in ("value","readiness","evidence","reversibility","leverage","cost","delay","dependency","revenue_potential","deployment_gap"):
             v = getattr(self, name)
-            if not isinstance(v, (int, float)) or not math.isfinite(v): raise ValidationError(f"{name} must be finite")
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v): raise ValidationError(f"{name} must be finite")
             if v < 0 or v > 5: raise ValidationError(f"{name} must be between 0 and 5")
         if self.cost <= 0 or self.delay <= 0 or self.dependency <= 0: raise ValidationError("cost, delay, dependency must be > 0")
         if self.state == "BLOCKED" and not self.blocker: raise ValidationError("BLOCKED objective requires blocker")
@@ -88,7 +88,7 @@ class Objective:
 
 class BandoDriver:
     def __init__(self, registry_path: str | Path = ".bando_driver.json", max_active: int = 3):
-        if max_active < 1: raise ValidationError("max_active must be >= 1")
+        if type(max_active) is not int or max_active < 1: raise ValidationError("max_active must be a positive integer")
         self.registry_path = Path(registry_path); self.max_active=max_active; self.objectives: Dict[str,Objective]={}; self._load()
 
     def _load(self, *, load_policy: bool = True) -> None:
@@ -96,11 +96,27 @@ class BandoDriver:
             self.objectives = {}
             return
         raw=json.loads(self.registry_path.read_text(encoding="utf-8"))
-        if raw.get("schema_version") != 1: raise ValidationError("unsupported registry schema_version")
-        if load_policy: self.max_active=int(raw.get("max_active",self.max_active))
+        if not isinstance(raw, dict):
+            raise ValidationError("registry must be a JSON object")
+        version=raw.get("schema_version")
+        if type(version) is not int or version != 1:
+            raise ValidationError("unsupported registry schema_version")
+        stored_max_active=raw.get("max_active",self.max_active)
+        if type(stored_max_active) is not int or stored_max_active < 1:
+            raise ValidationError("registry max_active must be a positive integer")
+        if load_policy: self.max_active=stored_max_active
+        objectives=raw.get("objectives",[])
+        if not isinstance(objectives, list):
+            raise ValidationError("registry objectives must be a JSON array")
         loaded: Dict[str,Objective]={}
-        for item in raw.get("objectives",[]):
-            obj=Objective(**item); obj.validate()
+        for index,item in enumerate(objectives):
+            if not isinstance(item, dict):
+                raise ValidationError(f"registry objectives[{index}] must be a JSON object")
+            try:
+                obj=Objective(**item)
+            except TypeError as exc:
+                raise ValidationError(f"invalid registry objective at index {index}: {exc}") from exc
+            obj.validate()
             if obj.id in loaded: raise ValidationError(f"duplicate objective id: {obj.id}")
             loaded[obj.id]=obj
         self.objectives=loaded

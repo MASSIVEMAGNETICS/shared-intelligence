@@ -134,3 +134,70 @@ def test_failed_mutation_releases_lock_and_preserves_latest_registry(tmp_path):
 
     BandoDriver(path).add(make_obj("second"))
     assert set(BandoDriver(path).objectives) == {"first", "second"}
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "value", "readiness", "evidence", "reversibility", "leverage",
+        "cost", "delay", "dependency", "revenue_potential", "deployment_gap",
+    ],
+)
+def test_boolean_numeric_fields_are_rejected(field):
+    with pytest.raises(ValidationError, match=f"{field} must be finite"):
+        make_obj("bad", **{field: True}).validate()
+
+
+@pytest.mark.parametrize("max_active", [True, False, 0, -1, 1.5, "3"])
+def test_constructor_rejects_invalid_max_active(max_active, tmp_path):
+    with pytest.raises(ValidationError, match="max_active"):
+        BandoDriver(tmp_path / "registry.json", max_active=max_active)
+
+
+@pytest.mark.parametrize("schema_version", [True, 1.0, "1"])
+def test_registry_schema_version_requires_json_integer(schema_version, tmp_path):
+    path = tmp_path / "registry.json"
+    path.write_text(
+        json.dumps({"schema_version": schema_version, "max_active": 3, "objectives": []}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError, match="schema_version"):
+        BandoDriver(path)
+
+
+@pytest.mark.parametrize("max_active", [True, False, 0, -1, 3.0, "3"])
+def test_registry_max_active_requires_positive_json_integer(max_active, tmp_path):
+    path = tmp_path / "registry.json"
+    path.write_text(
+        json.dumps({"schema_version": 1, "max_active": max_active, "objectives": []}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError, match="max_active"):
+        BandoDriver(path)
+
+
+def test_registry_top_level_must_be_json_object(tmp_path):
+    path = tmp_path / "registry.json"
+    path.write_text("[]", encoding="utf-8")
+    with pytest.raises(ValidationError, match="JSON object"):
+        BandoDriver(path)
+
+
+def test_registry_objectives_must_be_json_array(tmp_path):
+    path = tmp_path / "registry.json"
+    path.write_text(
+        json.dumps({"schema_version": 1, "max_active": 3, "objectives": {}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError, match="JSON array"):
+        BandoDriver(path)
+
+
+def test_registry_objective_entries_must_be_json_objects(tmp_path):
+    path = tmp_path / "registry.json"
+    path.write_text(
+        json.dumps({"schema_version": 1, "max_active": 3, "objectives": ["not-an-object"]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError, match=r"objectives\[0\]"):
+        BandoDriver(path)
