@@ -292,5 +292,6 @@ def test_registry_requires_persisted_timestamps(field, tmp_path):
         json.dumps({"schema_version": 1, "max_active": 3, "objectives": [record]}),
         encoding="utf-8",
     )
-    with pytest.raises(ValidationError, match=rf"objectives\\[0\\].*{field}"):
+    with pytest.raises(ValidationError, match="missing persisted timestamps") as exc:
         BandoDriver(path)
+    assert field in str(exc.value)
