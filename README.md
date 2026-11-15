@@ -201,7 +201,7 @@ pytest tests/ -v
 
 The existing `bando_driver.py` scoring/synthesis function and `bando_sources.py` GitHub PR adapter remain the source of truth. The scheduled workflow reuses them; it does not introduce a second governor or activation path.
 
-- `bando_maintenance_sources.json` is the read-only workflow's single source list. It covers the active public Empire lanes: Shared Intelligence, VictorOS, victor_empire, omni, Dev-Ville, SUNOKILLER, The AI Ear, VICTOR-SSI, and the public website repository.
+- `bando_maintenance_sources.json` is the read-only workflow's single source list. It covers the active public Empire lanes: Shared Intelligence, VictorOS, victor_empire, victor_llm, Victor.AGI, omni, Dev-Ville, SUNOKILLER, The AI Ear, VICTOR-SSI, MASSIVEMAGNETICS-IP, and the public website repository.
 - Public `SUNOKILLER` is included. `suno-killer` is a separate private repository and is intentionally excluded from this scheduled workflow; the two names are not aliases and must not be consolidated.
 - The workflow passes both `--config bando_maintenance_sources.json` and `--no-activate`. The config also sets `policy.activate_top` to `false`. This collector may rank and render work, but it does not activate objectives, create branches, edit files, open PRs, merge, deploy, or publish releases.
 - The workflow uses the repository-scoped GitHub token with read-only permissions. Private `B_HEARD_STUDIO_LITE` and `suno-killer` are intentionally excluded; adding private sources requires a separately approved least-privilege read credential and workflow review. No secret is created or changed here.

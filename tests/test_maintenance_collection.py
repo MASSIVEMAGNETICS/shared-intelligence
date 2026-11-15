@@ -143,6 +143,10 @@ def test_maintenance_source_config_is_bounded_and_read_only():
     # The public and private similarly named projects are distinct.
     assert "MASSIVEMAGNETICS/SUNOKILLER" in REPOS
     assert "MASSIVEMAGNETICS/suno-killer" not in REPOS
+    # Public security, model-quality, and IP/product lanes with open review work.
+    assert "MASSIVEMAGNETICS/Victor.AGI" in REPOS
+    assert "MASSIVEMAGNETICS/victor_llm" in REPOS
+    assert "MASSIVEMAGNETICS/MASSIVEMAGNETICS-IP" in REPOS
 
 
 def test_workflow_uses_canonical_read_only_source_config():
