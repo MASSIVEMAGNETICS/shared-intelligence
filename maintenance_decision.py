@@ -25,11 +25,14 @@ def select_decision(sync: Any, status: Any) -> dict[str, Any]:
 
     decision = sync["decision"]
     if decision is None:
-        if count != 0:
-            raise ValueError("missing decision despite open objectives")
+        reason = (
+            "no open objectives in synchronized registry"
+            if count == 0
+            else f"{count} open objectives exist, but none are currently eligible for selection"
+        )
         return {
             "status": "NO_ACTIONABLE_OBJECTIVES",
-            "reason": "no open objectives in synchronized registry",
+            "reason": reason,
         }
     if not isinstance(decision, dict):
         raise ValueError("invalid non-empty decision")
@@ -38,6 +41,9 @@ def select_decision(sync: Any, status: Any) -> dict[str, Any]:
         raise ValueError("decision missing non-empty objective_id")
     if count == 0:
         raise ValueError("decision present despite zero open objectives")
+    state = decision.get("state")
+    if not isinstance(state, str) or state not in {"QUEUED", "ACTIVE", "BLOCKED"}:
+        raise ValueError("decision state must be an open objective state")
     return decision
 
 
