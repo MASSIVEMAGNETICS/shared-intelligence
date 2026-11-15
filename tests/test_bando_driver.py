@@ -201,3 +201,84 @@ def test_registry_objective_entries_must_be_json_objects(tmp_path):
     )
     with pytest.raises(ValidationError, match=r"objectives\[0\]"):
         BandoDriver(path)
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("id", 7, "id must be a non-empty string"),
+        ("title", None, "title must be a non-empty string"),
+        ("next_action", [], "next_action must be a string"),
+        ("created_at", 123, "created_at must be a non-empty ISO-8601 string"),
+        ("updated_at", "", "updated_at must be a non-empty ISO-8601 string"),
+        ("blocker", 7, "blocker must be a non-empty string or null"),
+        ("evidence_ref", {}, "evidence_ref must be a non-empty string or null"),
+        ("kill_condition", False, "kill_condition must be a non-empty string or null"),
+        ("novelty_quarantine_until", 123, "novelty_quarantine_until must be a non-empty ISO-8601 string or null"),
+    ],
+)
+def test_objective_rejects_invalid_text_and_timestamp_fields(field, value, message):
+    with pytest.raises(ValidationError, match=message):
+        make_obj("bad", **{field: value}).validate()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("state", "RUNNING"),
+        ("state", []),
+        ("stage", "RELEASE"),
+        ("stage", None),
+    ],
+)
+def test_objective_rejects_unknown_state_and_stage_values(field, value):
+    with pytest.raises(ValidationError, match=field):
+        make_obj("bad", **{field: value}).validate()
+
+
+@pytest.mark.parametrize("field", ["created_at", "updated_at"])
+def test_objective_timestamps_must_be_parseable_iso8601(field):
+    with pytest.raises(ValidationError, match=f"{field} must be a valid ISO-8601 timestamp"):
+        make_obj("bad", **{field: "not-a-timestamp"}).validate()
+
+
+def test_objective_quarantine_timestamp_must_be_parseable_iso8601():
+    objective = make_obj("bad", novelty_quarantine_until="not-a-timestamp")
+    with pytest.raises(ValidationError, match="novelty_quarantine_until"):
+        objective.quarantined()
+
+
+def test_terminal_objective_requires_evidence_reference():
+    with pytest.raises(ValidationError, match="DONE objective requires evidence_ref"):
+        make_obj("done", state="DONE").validate()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("id", 7),
+        ("state", "RUNNING"),
+        ("stage", "RELEASE"),
+        ("novelty_quarantine_until", "not-a-timestamp"),
+    ],
+)
+def test_registry_rejects_malformed_objective_before_loading(tmp_path, field, value):
+    record = make_obj("candidate").__dict__.copy()
+    record[field] = value
+    path = tmp_path / "registry.json"
+    path.write_text(
+        json.dumps({"schema_version": 1, "max_active": 3, "objectives": [record]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError):
+        BandoDriver(path)
+
+
+def test_registry_rejects_terminal_objective_without_evidence_reference(tmp_path):
+    record = make_obj("done", state="DONE").__dict__.copy()
+    path = tmp_path / "registry.json"
+    path.write_text(
+        json.dumps({"schema_version": 1, "max_active": 3, "objectives": [record]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError, match="DONE objective requires evidence_ref"):
+        BandoDriver(path)

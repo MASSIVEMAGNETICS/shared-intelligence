@@ -28,6 +28,8 @@ Stage = Literal["DISCOVERY", "BUILD", "VERIFY", "DEPLOY", "SELL", "OBSERVE", "SC
 
 TERMINAL_STATES = {"DONE", "ARCHIVED", "FAILED"}
 OPEN_STATES = {"QUEUED", "ACTIVE", "BLOCKED"}
+VALID_STATES = TERMINAL_STATES | OPEN_STATES
+VALID_STAGES = {"DISCOVERY", "BUILD", "VERIFY", "DEPLOY", "SELL", "OBSERVE", "SCALE"}
 
 class DriverError(RuntimeError): pass
 class CapacityError(DriverError): pass
@@ -58,24 +60,63 @@ class Objective:
     kill_condition: Optional[str] = None
 
     def validate(self) -> None:
-        if not self.id.strip(): raise ValidationError("objective id is required")
-        if not self.title.strip(): raise ValidationError("objective title is required")
-        if not self.next_action.strip() and self.state not in TERMINAL_STATES: raise ValidationError("open objective requires next_action")
-        for name in ("value","readiness","evidence","reversibility","leverage","cost","delay","dependency","revenue_potential","deployment_gap"):
-            v = getattr(self, name)
-            if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v): raise ValidationError(f"{name} must be finite")
-            if v < 0 or v > 5: raise ValidationError(f"{name} must be between 0 and 5")
-        if self.cost <= 0 or self.delay <= 0 or self.dependency <= 0: raise ValidationError("cost, delay, dependency must be > 0")
-        if self.state == "BLOCKED" and not self.blocker: raise ValidationError("BLOCKED objective requires blocker")
+        for name in ("id", "title"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValidationError(f"{name} must be a non-empty string")
+        if not isinstance(self.next_action, str):
+            raise ValidationError("next_action must be a string")
+        if not isinstance(self.state, str) or self.state not in VALID_STATES:
+            raise ValidationError(f"state must be one of {sorted(VALID_STATES)}")
+        if not isinstance(self.stage, str) or self.stage not in VALID_STAGES:
+            raise ValidationError(f"stage must be one of {sorted(VALID_STAGES)}")
+
+        for name in ("created_at", "updated_at"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValidationError(f"{name} must be a non-empty ISO-8601 string")
+            try:
+                datetime.fromisoformat(value)
+            except ValueError as exc:
+                raise ValidationError(f"{name} must be a valid ISO-8601 timestamp") from exc
+
+        for name in ("blocker", "evidence_ref", "kill_condition"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValidationError(f"{name} must be a non-empty string or null")
+        if self.novelty_quarantine_until is not None:
+            if not isinstance(self.novelty_quarantine_until, str) or not self.novelty_quarantine_until.strip():
+                raise ValidationError("novelty_quarantine_until must be a non-empty ISO-8601 string or null")
+            try:
+                datetime.fromisoformat(self.novelty_quarantine_until)
+            except ValueError as exc:
+                raise ValidationError("novelty_quarantine_until must be a valid ISO-8601 timestamp") from exc
+
+        if not self.next_action.strip() and self.state not in TERMINAL_STATES:
+            raise ValidationError("open objective requires next_action")
+        if self.state in TERMINAL_STATES and not self.evidence_ref:
+            raise ValidationError(f"{self.state} objective requires evidence_ref")
+
+        for name in ("value", "readiness", "evidence", "reversibility", "leverage", "cost", "delay", "dependency", "revenue_potential", "deployment_gap"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValidationError(f"{name} must be finite")
+            if value < 0 or value > 5:
+                raise ValidationError(f"{name} must be between 0 and 5")
+        if self.cost <= 0 or self.delay <= 0 or self.dependency <= 0:
+            raise ValidationError("cost, delay, dependency must be > 0")
+        if self.state == "BLOCKED" and not self.blocker:
+            raise ValidationError("BLOCKED objective requires blocker")
 
     def quarantined(self, now: Optional[datetime] = None) -> bool:
-        if not self.novelty_quarantine_until: return False
+        self.validate()
+        if self.novelty_quarantine_until is None:
+            return False
         now = now or datetime.now(timezone.utc)
-        try: until = datetime.fromisoformat(self.novelty_quarantine_until)
-        except ValueError as exc: raise ValidationError("invalid novelty_quarantine_until") from exc
-        if until.tzinfo is None: until = until.replace(tzinfo=timezone.utc)
+        until = datetime.fromisoformat(self.novelty_quarantine_until)
+        if until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
         return now < until
-
     def score(self) -> float:
         self.validate()
         base = (self.value*self.readiness*self.evidence*self.reversibility*self.leverage)/(self.cost*self.delay*self.dependency)
