@@ -207,3 +207,8 @@ The existing `bando_driver.py` scoring/synthesis function and `bando_sources.py`
 - The workflow uses the repository-scoped GitHub token with read-only permissions. Private `B_HEARD_STUDIO_LITE` and `suno-killer` are intentionally excluded; adding private sources requires a separately approved least-privilege read credential and workflow review. No secret is created or changed here.
 - Pull-request validation intentionally skips live collection. The scheduled/manual collection only runs from the default branch after the workflow is explicitly reviewed and merged; a green PR test run is not proof of live cross-repository collection or artifact production.
 - `bando_stack.json` is left unchanged. Its local stack activation policy is not the scheduled workflow's read-only policy.
+
+
+### Read-only source configuration validation
+
+Before collection, the workflow runs `validate_maintenance_config.py`. It rejects malformed JSON types instead of coercing them: `schema_version` must be integer 1, `repositories` must be a non-empty unique list of exact `owner/name` strings, `max_active` must be a positive integer, and `policy.activate_top` must be the JSON boolean `false`. A configured intent-graph snapshot must exist. The workflow still passes `--no-activate`; this validator is a fail-closed preflight, not a replacement for BANDO_DRIVER or a second execution governor.
