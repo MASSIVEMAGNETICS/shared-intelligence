@@ -201,6 +201,8 @@ pytest tests/ -v
 
 The existing `bando_driver.py` scoring/synthesis function and `bando_sources.py` GitHub PR adapter remain the source of truth. The scheduled workflow reuses them; it does not introduce a second governor or activation path.
 
+The decision renderer distinguishes an empty registry from open work that has no currently eligible selection (for example, objectives held by novelty quarantine). Both are reported as `NO_ACTIONABLE_OBJECTIVES`, with a reason that preserves the difference; malformed or terminal-state selections fail closed. This is a presentation/validation boundary only and does not alter BANDO_DRIVER scoring, ranking, or activation.
+
 - `bando_maintenance_sources.json` is the read-only workflow's single source list. It covers the active public Empire lanes: Shared Intelligence, VictorOS, victor_empire, victor_llm, Victor.AGI, omni, Dev-Ville, SUNOKILLER, The AI Ear, VICTOR-SSI, MASSIVEMAGNETICS-IP, and the public website repository.
 - Public `SUNOKILLER` is included. `suno-killer` is a separate private repository and is intentionally excluded from this scheduled workflow; the two names are not aliases and must not be consolidated.
 - The workflow passes both `--config bando_maintenance_sources.json` and `--no-activate`. The config also sets `policy.activate_top` to `false`. This collector may rank and render work, but it does not activate objectives, create branches, edit files, open PRs, merge, deploy, or publish releases.
