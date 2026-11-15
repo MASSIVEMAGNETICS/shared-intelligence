@@ -368,3 +368,105 @@ def test_explicit_intent_graph_overrides_missing_configured_snapshot(monkeypatch
     saved = json.loads(registry.read_text(encoding="utf-8"))
     assert [item["id"] for item in saved["objectives"]] == ["intent:explicit-override"]
     assert saved["objectives"][0]["state"] == "QUEUED"
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"schema_version": True}, "schema_version"),
+        ({"repositories": "MASSIVEMAGNETICS/example"}, "repositories must be a JSON array"),
+        ({"repositories": [True]}, r"repositories\\[0\\]"),
+        ({"repositories": ["MASSIVEMAGNETICS/example/extra"]}, "owner/name"),
+        ({"max_active": True}, "max_active"),
+        ({"max_active": 0}, "max_active"),
+        ({"max_active": 1.5}, "max_active"),
+        ({"policy": []}, "policy must be a JSON object"),
+        ({"policy": {"activate_top": "false"}}, "policy.activate_top"),
+        ({"intent_graph_snapshot": 7}, "intent_graph_snapshot"),
+        ({"intent_graph_snapshot": ""}, "intent_graph_snapshot"),
+    ],
+)
+def test_sync_rejects_malformed_stack_config_before_github_reads(
+    monkeypatch, tmp_path, override, message
+):
+    config = {
+        "schema_version": 1,
+        "repositories": ["MASSIVEMAGNETICS/example"],
+        "max_active": 3,
+        "policy": {"activate_top": False},
+    }
+    config.update(override)
+    config_path = tmp_path / "stack.json"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        bando_driver,
+        "github_pr_objectives",
+        lambda repos: pytest.fail("GitHub sources must not be read for an invalid stack config"),
+    )
+    registry = tmp_path / "registry.json"
+
+    with pytest.raises(DriverError, match=message):
+        bando_driver.main(
+            ["--registry", str(registry), "sync", "--config", str(config_path), "--no-activate"]
+        )
+
+    assert not registry.exists()
+
+
+def test_sync_rejects_non_object_stack_config_before_github_reads(monkeypatch, tmp_path):
+    config_path = tmp_path / "stack.json"
+    config_path.write_text("[]", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        bando_driver,
+        "github_pr_objectives",
+        lambda repos: pytest.fail("GitHub sources must not be read for a non-object stack config"),
+    )
+
+    with pytest.raises(DriverError, match="stack config must be a JSON object"):
+        bando_driver.main(
+            ["--registry", str(tmp_path / "registry.json"), "sync", "--config", str(config_path)]
+        )
+
+
+def test_sync_wraps_malformed_stack_config_json(monkeypatch, tmp_path):
+    config_path = tmp_path / "stack.json"
+    config_path.write_text("{", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(DriverError, match="unable to read stack config"):
+        bando_driver.main(
+            ["--registry", str(tmp_path / "registry.json"), "sync", "--config", str(config_path)]
+        )
+
+
+def test_sync_accepts_valid_stack_config_and_respects_boolean_activation(monkeypatch, tmp_path):
+    config_path = tmp_path / "stack.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "repositories": ["MASSIVEMAGNETICS/example"],
+                "max_active": 2,
+                "policy": {"activate_top": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        bando_driver,
+        "github_pr_objectives",
+        lambda repos: [source_obj("github:MASSIVEMAGNETICS/example:pr:1")],
+    )
+    registry = tmp_path / "registry.json"
+
+    result = bando_driver.main(
+        ["--registry", str(registry), "sync", "--config", str(config_path)]
+    )
+
+    assert result == 0
+    saved = json.loads(registry.read_text(encoding="utf-8"))
+    assert saved["max_active"] == 2
+    assert saved["objectives"][0]["state"] == "QUEUED"
