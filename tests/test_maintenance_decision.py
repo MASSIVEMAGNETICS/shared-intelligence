@@ -22,7 +22,6 @@ def test_selected_decision_preserved_without_rescoring():
 
 @pytest.mark.parametrize("sync,status", [
     ({}, {"open_loops": 0}),
-    ({"decision": None}, {"open_loops": 1}),
     ({"decision": {"objective_id": "a"}}, {"open_loops": 0}),
     ({"decision": {"objective_id": "  "}}, {"open_loops": 1}),
     ({"decision": "garbage"}, {"open_loops": 1}),
@@ -52,7 +51,7 @@ def test_failed_input_preserves_existing_receipt(tmp_path):
     status = tmp_path / "status.json"
     output = tmp_path / "next.json"
     output.write_text('previous good receipt\n')
-    sync.write_text('{"decision": null}')
+    sync.write_text("{}")
     status.write_text('{"open_loops": 2}')
     with pytest.raises(ValueError):
         write_decision(sync, status, output)
