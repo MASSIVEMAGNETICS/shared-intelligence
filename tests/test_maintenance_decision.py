@@ -85,3 +85,22 @@ def test_cli_fails_closed_on_malformed_json(tmp_path):
                             capture_output=True, text=True, check=False)
     assert result.returncode != 0
     assert not output.exists()
+
+def test_open_objectives_without_an_eligible_decision_are_reported_not_rejected():
+    result = select_decision({"decision": None}, {"open_loops": 2})
+    assert result["status"] == "NO_ACTIONABLE_OBJECTIVES"
+    assert "2 open objectives exist" in result["reason"]
+    assert "none are currently eligible" in result["reason"]
+
+
+@pytest.mark.parametrize("state", ["QUEUED", "ACTIVE", "BLOCKED"])
+def test_selected_decision_accepts_only_open_states(state):
+    selected = {"objective_id": "github:repo:pr:4", "state": state, "score": 1.25}
+    assert select_decision({"decision": selected}, {"open_loops": 1}) == selected
+
+
+@pytest.mark.parametrize("state", ["DONE", "ARCHIVED", "FAILED", None, True, [], ""])
+def test_selected_decision_rejects_terminal_or_malformed_states(state):
+    selected = {"objective_id": "github:repo:pr:4", "state": state}
+    with pytest.raises(ValueError, match="open objective state"):
+        select_decision({"decision": selected}, {"open_loops": 1})
