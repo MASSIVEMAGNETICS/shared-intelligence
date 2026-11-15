@@ -470,3 +470,76 @@ def test_sync_accepts_valid_stack_config_and_respects_boolean_activation(monkeyp
     saved = json.loads(registry.read_text(encoding="utf-8"))
     assert saved["max_active"] == 2
     assert saved["objectives"][0]["state"] == "QUEUED"
+
+@pytest.mark.parametrize(
+    ("stage", "stage_boost"),
+    [
+        ("DISCOVERY", 0.70),
+        ("BUILD", 0.90),
+        ("VERIFY", 1.05),
+        ("DEPLOY", 1.20),
+        ("SELL", 1.35),
+        ("OBSERVE", 1.10),
+        ("SCALE", 1.15),
+    ],
+)
+def test_score_formula_is_preserved_for_each_stage(stage, stage_boost):
+    objective = make_obj(
+        f"score-{stage.lower()}",
+        stage=stage,
+        value=2.0,
+        readiness=3.0,
+        evidence=4.0,
+        reversibility=5.0,
+        leverage=2.0,
+        cost=2.0,
+        delay=3.0,
+        dependency=4.0,
+        revenue_potential=5.0,
+        deployment_gap=4.0,
+    )
+    base = (2.0 * 3.0 * 4.0 * 5.0 * 2.0) / (2.0 * 3.0 * 4.0)
+    expected = base * 1.9 * 1.48 * stage_boost
+    assert objective.score() == pytest.approx(expected)
+
+
+def test_score_formula_preserves_blocked_penalty():
+    objective = make_obj(
+        "score-blocked",
+        state="BLOCKED",
+        blocker="independent review required",
+        stage="VERIFY",
+        value=2.0,
+        readiness=3.0,
+        evidence=4.0,
+        reversibility=5.0,
+        leverage=2.0,
+        cost=2.0,
+        delay=3.0,
+        dependency=4.0,
+        revenue_potential=5.0,
+        deployment_gap=4.0,
+    )
+    base = (2.0 * 3.0 * 4.0 * 5.0 * 2.0) / (2.0 * 3.0 * 4.0)
+    expected = base * 1.9 * 1.48 * 1.05 * 0.15
+    assert objective.score() == pytest.approx(expected)
+
+
+def test_score_formula_keeps_terminal_objectives_at_zero():
+    objective = make_obj(
+        "score-done",
+        state="DONE",
+        evidence_ref="sha256:verified-test-evidence",
+        stage="SELL",
+        value=5.0,
+        readiness=5.0,
+        evidence=5.0,
+        reversibility=5.0,
+        leverage=5.0,
+        cost=1.0,
+        delay=1.0,
+        dependency=1.0,
+        revenue_potential=5.0,
+        deployment_gap=5.0,
+    )
+    assert objective.score() == 0.0
