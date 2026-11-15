@@ -295,3 +295,76 @@ def test_registry_requires_persisted_timestamps(field, tmp_path):
     with pytest.raises(ValidationError, match="missing persisted timestamps") as exc:
         BandoDriver(path)
     assert field in str(exc.value)
+
+
+def test_sync_fails_closed_when_configured_intent_graph_snapshot_is_missing(monkeypatch, tmp_path):
+    config_path = tmp_path / "stack.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "repositories": ["MASSIVEMAGNETICS/example"],
+                "intent_graph_snapshot": "missing/intent_graph.json",
+                "max_active": 3,
+                "policy": {"activate_top": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        bando_driver,
+        "github_pr_objectives",
+        lambda repos: pytest.fail("GitHub sources must not be read after a missing configured snapshot"),
+    )
+    registry = tmp_path / "registry.json"
+
+    with pytest.raises(
+        bando_driver.DriverError,
+        match="configured intent graph snapshot does not exist or is not a file",
+    ):
+        bando_driver.main(
+            ["--registry", str(registry), "sync", "--config", str(config_path), "--no-activate"]
+        )
+
+    assert not registry.exists()
+
+
+def test_explicit_intent_graph_overrides_missing_configured_snapshot(monkeypatch, tmp_path):
+    config_path = tmp_path / "stack.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "repositories": ["MASSIVEMAGNETICS/example"],
+                "intent_graph_snapshot": "missing/intent_graph.json",
+                "max_active": 3,
+                "policy": {"activate_top": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    explicit_snapshot = tmp_path / "explicit-intent.json"
+    explicit_snapshot.write_text("{}", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(bando_driver, "github_pr_objectives", lambda repos: [])
+    observed_paths = []
+    monkeypatch.setattr(
+        bando_driver,
+        "intent_graph_objectives",
+        lambda path: (observed_paths.append(path) or [source_obj("intent:explicit-override")]),
+    )
+    registry = tmp_path / "registry.json"
+
+    result = bando_driver.main(
+        [
+            "--registry", str(registry), "sync", "--config", str(config_path),
+            "--intent-graph", str(explicit_snapshot), "--no-activate",
+        ]
+    )
+
+    assert result == 0
+    assert observed_paths == [str(explicit_snapshot)]
+    saved = json.loads(registry.read_text(encoding="utf-8"))
+    assert [item["id"] for item in saved["objectives"]] == ["intent:explicit-override"]
+    assert saved["objectives"][0]["state"] == "QUEUED"

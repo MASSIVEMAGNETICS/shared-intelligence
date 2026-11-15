@@ -335,7 +335,16 @@ def main(argv:Optional[Iterable[str]]=None)->int:
             cfg=json.loads(Path(args.config).read_text(encoding="utf-8"))
             if cfg.get("schema_version")!=1: raise DriverError("unsupported stack config schema_version")
             repos.extend(str(x) for x in cfg.get("repositories",[])); configured=cfg.get("intent_graph_snapshot")
-            if configured and not intent_path and Path(configured).exists(): intent_path=configured
+            if configured is not None and not intent_path:
+                if not isinstance(configured, str) or not configured.strip():
+                    raise DriverError("intent_graph_snapshot must be a non-empty path string")
+                snapshot_path = Path(configured)
+                if not snapshot_path.is_file():
+                    raise DriverError(
+                        "configured intent graph snapshot does not exist or is not a file: "
+                        f"{configured}"
+                    )
+                intent_path = configured
             if isinstance(cfg.get("max_active"),int): driver.max_active=cfg["max_active"]
             activate_top=bool(cfg.get("policy",{}).get("activate_top",activate_top)) and not args.no_activate
         repos=list(dict.fromkeys(repos))
