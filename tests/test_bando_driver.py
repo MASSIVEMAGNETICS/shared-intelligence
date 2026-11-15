@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 import bando_driver
-from bando_driver import BandoDriver, CapacityError, Objective, ValidationError
+from bando_driver import BandoDriver, CapacityError, DriverError, Objective, ValidationError
 from bando_sources import SourceObjective
 
 
@@ -375,7 +375,7 @@ def test_explicit_intent_graph_overrides_missing_configured_snapshot(monkeypatch
     [
         ({"schema_version": True}, "schema_version"),
         ({"repositories": "MASSIVEMAGNETICS/example"}, "repositories must be a JSON array"),
-        ({"repositories": [True]}, r"repositories\\[0\\]"),
+        ({"repositories": [True]}, r"repositories\[0\]"),
         ({"repositories": ["MASSIVEMAGNETICS/example/extra"]}, "owner/name"),
         ({"max_active": True}, "max_active"),
         ({"max_active": 0}, "max_active"),
