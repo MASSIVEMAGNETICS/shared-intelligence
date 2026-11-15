@@ -282,3 +282,15 @@ def test_registry_rejects_terminal_objective_without_evidence_reference(tmp_path
     )
     with pytest.raises(ValidationError, match="DONE objective requires evidence_ref"):
         BandoDriver(path)
+
+@pytest.mark.parametrize("field", ["created_at", "updated_at"])
+def test_registry_requires_persisted_timestamps(field, tmp_path):
+    record = make_obj("candidate").__dict__.copy()
+    record.pop(field)
+    path = tmp_path / "registry.json"
+    path.write_text(
+        json.dumps({"schema_version": 1, "max_active": 3, "objectives": [record]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError, match=rf"objectives\\[0\\].*{field}"):
+        BandoDriver(path)

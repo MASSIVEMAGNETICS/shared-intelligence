@@ -153,6 +153,14 @@ class BandoDriver:
         for index,item in enumerate(objectives):
             if not isinstance(item, dict):
                 raise ValidationError(f"registry objectives[{index}] must be a JSON object")
+            missing_timestamps = [
+                name for name in ("created_at", "updated_at") if name not in item
+            ]
+            if missing_timestamps:
+                raise ValidationError(
+                    f"registry objectives[{index}] missing persisted timestamps: "
+                    f"{', '.join(missing_timestamps)}"
+                )
             try:
                 obj=Objective(**item)
             except TypeError as exc:
