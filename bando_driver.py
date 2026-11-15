@@ -332,21 +332,58 @@ def main(argv:Optional[Iterable[str]]=None)->int:
     if args.cmd=="sync":
         sources=[]; repos=list(args.github_repo); intent_path=args.intent_graph; activate_top=not args.no_activate
         if args.config:
-            cfg=json.loads(Path(args.config).read_text(encoding="utf-8"))
-            if cfg.get("schema_version")!=1: raise DriverError("unsupported stack config schema_version")
-            repos.extend(str(x) for x in cfg.get("repositories",[])); configured=cfg.get("intent_graph_snapshot")
-            if configured is not None and not intent_path:
-                if not isinstance(configured, str) or not configured.strip():
-                    raise DriverError("intent_graph_snapshot must be a non-empty path string")
-                snapshot_path = Path(configured)
-                if not snapshot_path.is_file():
+            try:
+                cfg=json.loads(Path(args.config).read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise DriverError(f"unable to read stack config {args.config}: {exc}") from exc
+            if not isinstance(cfg, dict):
+                raise DriverError("stack config must be a JSON object")
+            version=cfg.get("schema_version")
+            if type(version) is not int or version != 1:
+                raise DriverError("unsupported stack config schema_version")
+
+            configured_repos=cfg.get("repositories", [])
+            if not isinstance(configured_repos, list):
+                raise DriverError("stack config repositories must be a JSON array")
+            for index, repo in enumerate(configured_repos):
+                if (
+                    not isinstance(repo, str)
+                    or not repo.strip()
+                    or repo != repo.strip()
+                    or repo.count("/") != 1
+                    or any(char.isspace() for char in repo)
+                ):
                     raise DriverError(
-                        "configured intent graph snapshot does not exist or is not a file: "
-                        f"{configured}"
+                        f"stack config repositories[{index}] must be a non-empty owner/name string"
                     )
-                intent_path = configured
-            if isinstance(cfg.get("max_active"),int): driver.max_active=cfg["max_active"]
-            activate_top=bool(cfg.get("policy",{}).get("activate_top",activate_top)) and not args.no_activate
+            repos.extend(configured_repos)
+
+            configured=cfg.get("intent_graph_snapshot")
+            if configured is not None:
+                if not isinstance(configured, str) or not configured.strip():
+                    raise DriverError("intent_graph_snapshot must be a non-empty path string or null")
+                if not intent_path:
+                    snapshot_path=Path(configured)
+                    if not snapshot_path.is_file():
+                        raise DriverError(
+                            "configured intent graph snapshot does not exist or is not a file: "
+                            f"{configured}"
+                        )
+                    intent_path=configured
+
+            if "max_active" in cfg:
+                configured_max_active=cfg["max_active"]
+                if type(configured_max_active) is not int or configured_max_active < 1:
+                    raise DriverError("stack config max_active must be a positive integer")
+                driver.max_active=configured_max_active
+
+            policy=cfg.get("policy", {})
+            if not isinstance(policy, dict):
+                raise DriverError("stack config policy must be a JSON object")
+            configured_activate_top=policy.get("activate_top", activate_top)
+            if type(configured_activate_top) is not bool:
+                raise DriverError("stack config policy.activate_top must be a JSON boolean")
+            activate_top=configured_activate_top and not args.no_activate
         repos=list(dict.fromkeys(repos))
         if repos: sources.extend(github_pr_objectives(repos))
         if intent_path: sources.extend(intent_graph_objectives(intent_path))
