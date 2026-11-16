@@ -10,7 +10,7 @@ WORKFLOWS = (
     Path(".github/workflows/daily-empire-maintenance.yml"),
     Path(".github/workflows/bando-driver-ci.yml"),
 )
-ACTION_REFERENCE = re.compile(r"^\s*uses:\s*([^\s#]+)", re.MULTILINE)
+ACTION_REFERENCE = re.compile(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)", re.MULTILINE)
 IMMUTABLE_COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 
 
