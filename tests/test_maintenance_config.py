@@ -46,6 +46,13 @@ def test_repository_list_rejects_wrong_shape_malformed_and_duplicate_entries(val
         validate_config(config, base_dir=ROOT)
 
 
+def test_repository_list_rejects_noncanonical_owner():
+    config = clone_config()
+    config["repositories"][0] = "another-owner/repo"
+    with pytest.raises(ConfigError, match="owner must be MASSIVEMAGNETICS"):
+        validate_config(config, base_dir=ROOT)
+
+
 def test_schema_version_rejects_boolean_true():
     config = clone_config()
     config["schema_version"] = True

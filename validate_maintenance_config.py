@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Any
 
 
+EXPECTED_REPOSITORY_OWNER = "MASSIVEMAGNETICS"
+
+
 class ConfigError(ValueError):
     """Raised when the review-only maintenance source config is unsafe."""
 
@@ -33,6 +36,10 @@ def validate_config(raw: Any, *, base_dir: Path | None = None) -> dict[str, Any]
         owner, name = repository.split("/", 1)
         if not owner or not name or any(ch.isspace() for ch in repository):
             raise ConfigError(f"repositories[{index}] must be an exact owner/name value")
+        if owner.casefold() != EXPECTED_REPOSITORY_OWNER.casefold():
+            raise ConfigError(
+                f"repositories[{index}] owner must be {EXPECTED_REPOSITORY_OWNER}"
+            )
         if repository in seen:
             raise ConfigError(f"duplicate repository entry: {repository}")
         seen.add(repository)
