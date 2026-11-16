@@ -28,6 +28,8 @@ Stage = Literal["DISCOVERY", "BUILD", "VERIFY", "DEPLOY", "SELL", "OBSERVE", "SC
 
 TERMINAL_STATES = {"DONE", "ARCHIVED", "FAILED"}
 OPEN_STATES = {"QUEUED", "ACTIVE", "BLOCKED"}
+VALID_STATES = TERMINAL_STATES | OPEN_STATES
+VALID_STAGES = {"DISCOVERY", "BUILD", "VERIFY", "DEPLOY", "SELL", "OBSERVE", "SCALE"}
 
 class DriverError(RuntimeError): pass
 class CapacityError(DriverError): pass
@@ -58,24 +60,63 @@ class Objective:
     kill_condition: Optional[str] = None
 
     def validate(self) -> None:
-        if not self.id.strip(): raise ValidationError("objective id is required")
-        if not self.title.strip(): raise ValidationError("objective title is required")
-        if not self.next_action.strip() and self.state not in TERMINAL_STATES: raise ValidationError("open objective requires next_action")
-        for name in ("value","readiness","evidence","reversibility","leverage","cost","delay","dependency","revenue_potential","deployment_gap"):
-            v = getattr(self, name)
-            if not isinstance(v, (int, float)) or not math.isfinite(v): raise ValidationError(f"{name} must be finite")
-            if v < 0 or v > 5: raise ValidationError(f"{name} must be between 0 and 5")
-        if self.cost <= 0 or self.delay <= 0 or self.dependency <= 0: raise ValidationError("cost, delay, dependency must be > 0")
-        if self.state == "BLOCKED" and not self.blocker: raise ValidationError("BLOCKED objective requires blocker")
+        for name in ("id", "title"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValidationError(f"{name} must be a non-empty string")
+        if not isinstance(self.next_action, str):
+            raise ValidationError("next_action must be a string")
+        if not isinstance(self.state, str) or self.state not in VALID_STATES:
+            raise ValidationError(f"state must be one of {sorted(VALID_STATES)}")
+        if not isinstance(self.stage, str) or self.stage not in VALID_STAGES:
+            raise ValidationError(f"stage must be one of {sorted(VALID_STAGES)}")
+
+        for name in ("created_at", "updated_at"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValidationError(f"{name} must be a non-empty ISO-8601 string")
+            try:
+                datetime.fromisoformat(value)
+            except ValueError as exc:
+                raise ValidationError(f"{name} must be a valid ISO-8601 timestamp") from exc
+
+        for name in ("blocker", "evidence_ref", "kill_condition"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValidationError(f"{name} must be a non-empty string or null")
+        if self.novelty_quarantine_until is not None:
+            if not isinstance(self.novelty_quarantine_until, str) or not self.novelty_quarantine_until.strip():
+                raise ValidationError("novelty_quarantine_until must be a non-empty ISO-8601 string or null")
+            try:
+                datetime.fromisoformat(self.novelty_quarantine_until)
+            except ValueError as exc:
+                raise ValidationError("novelty_quarantine_until must be a valid ISO-8601 timestamp") from exc
+
+        if not self.next_action.strip() and self.state not in TERMINAL_STATES:
+            raise ValidationError("open objective requires next_action")
+        if self.state in TERMINAL_STATES and not self.evidence_ref:
+            raise ValidationError(f"{self.state} objective requires evidence_ref")
+
+        for name in ("value", "readiness", "evidence", "reversibility", "leverage", "cost", "delay", "dependency", "revenue_potential", "deployment_gap"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValidationError(f"{name} must be finite")
+            if value < 0 or value > 5:
+                raise ValidationError(f"{name} must be between 0 and 5")
+        if self.cost <= 0 or self.delay <= 0 or self.dependency <= 0:
+            raise ValidationError("cost, delay, dependency must be > 0")
+        if self.state == "BLOCKED" and not self.blocker:
+            raise ValidationError("BLOCKED objective requires blocker")
 
     def quarantined(self, now: Optional[datetime] = None) -> bool:
-        if not self.novelty_quarantine_until: return False
+        self.validate()
+        if self.novelty_quarantine_until is None:
+            return False
         now = now or datetime.now(timezone.utc)
-        try: until = datetime.fromisoformat(self.novelty_quarantine_until)
-        except ValueError as exc: raise ValidationError("invalid novelty_quarantine_until") from exc
-        if until.tzinfo is None: until = until.replace(tzinfo=timezone.utc)
+        until = datetime.fromisoformat(self.novelty_quarantine_until)
+        if until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
         return now < until
-
     def score(self) -> float:
         self.validate()
         base = (self.value*self.readiness*self.evidence*self.reversibility*self.leverage)/(self.cost*self.delay*self.dependency)
@@ -88,7 +129,7 @@ class Objective:
 
 class BandoDriver:
     def __init__(self, registry_path: str | Path = ".bando_driver.json", max_active: int = 3):
-        if max_active < 1: raise ValidationError("max_active must be >= 1")
+        if type(max_active) is not int or max_active < 1: raise ValidationError("max_active must be a positive integer")
         self.registry_path = Path(registry_path); self.max_active=max_active; self.objectives: Dict[str,Objective]={}; self._load()
 
     def _load(self, *, load_policy: bool = True) -> None:
@@ -96,11 +137,35 @@ class BandoDriver:
             self.objectives = {}
             return
         raw=json.loads(self.registry_path.read_text(encoding="utf-8"))
-        if raw.get("schema_version") != 1: raise ValidationError("unsupported registry schema_version")
-        if load_policy: self.max_active=int(raw.get("max_active",self.max_active))
+        if not isinstance(raw, dict):
+            raise ValidationError("registry must be a JSON object")
+        version=raw.get("schema_version")
+        if type(version) is not int or version != 1:
+            raise ValidationError("unsupported registry schema_version")
+        stored_max_active=raw.get("max_active",self.max_active)
+        if type(stored_max_active) is not int or stored_max_active < 1:
+            raise ValidationError("registry max_active must be a positive integer")
+        if load_policy: self.max_active=stored_max_active
+        objectives=raw.get("objectives",[])
+        if not isinstance(objectives, list):
+            raise ValidationError("registry objectives must be a JSON array")
         loaded: Dict[str,Objective]={}
-        for item in raw.get("objectives",[]):
-            obj=Objective(**item); obj.validate()
+        for index,item in enumerate(objectives):
+            if not isinstance(item, dict):
+                raise ValidationError(f"registry objectives[{index}] must be a JSON object")
+            missing_timestamps = [
+                name for name in ("created_at", "updated_at") if name not in item
+            ]
+            if missing_timestamps:
+                raise ValidationError(
+                    f"registry objectives[{index}] missing persisted timestamps: "
+                    f"{', '.join(missing_timestamps)}"
+                )
+            try:
+                obj=Objective(**item)
+            except TypeError as exc:
+                raise ValidationError(f"invalid registry objective at index {index}: {exc}") from exc
+            obj.validate()
             if obj.id in loaded: raise ValidationError(f"duplicate objective id: {obj.id}")
             loaded[obj.id]=obj
         self.objectives=loaded
@@ -267,12 +332,58 @@ def main(argv:Optional[Iterable[str]]=None)->int:
     if args.cmd=="sync":
         sources=[]; repos=list(args.github_repo); intent_path=args.intent_graph; activate_top=not args.no_activate
         if args.config:
-            cfg=json.loads(Path(args.config).read_text(encoding="utf-8"))
-            if cfg.get("schema_version")!=1: raise DriverError("unsupported stack config schema_version")
-            repos.extend(str(x) for x in cfg.get("repositories",[])); configured=cfg.get("intent_graph_snapshot")
-            if configured and not intent_path and Path(configured).exists(): intent_path=configured
-            if isinstance(cfg.get("max_active"),int): driver.max_active=cfg["max_active"]
-            activate_top=bool(cfg.get("policy",{}).get("activate_top",activate_top)) and not args.no_activate
+            try:
+                cfg=json.loads(Path(args.config).read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise DriverError(f"unable to read stack config {args.config}: {exc}") from exc
+            if not isinstance(cfg, dict):
+                raise DriverError("stack config must be a JSON object")
+            version=cfg.get("schema_version")
+            if type(version) is not int or version != 1:
+                raise DriverError("unsupported stack config schema_version")
+
+            configured_repos=cfg.get("repositories", [])
+            if not isinstance(configured_repos, list):
+                raise DriverError("stack config repositories must be a JSON array")
+            for index, repo in enumerate(configured_repos):
+                if (
+                    not isinstance(repo, str)
+                    or not repo.strip()
+                    or repo != repo.strip()
+                    or repo.count("/") != 1
+                    or any(char.isspace() for char in repo)
+                ):
+                    raise DriverError(
+                        f"stack config repositories[{index}] must be a non-empty owner/name string"
+                    )
+            repos.extend(configured_repos)
+
+            configured=cfg.get("intent_graph_snapshot")
+            if configured is not None:
+                if not isinstance(configured, str) or not configured.strip():
+                    raise DriverError("intent_graph_snapshot must be a non-empty path string or null")
+                if not intent_path:
+                    snapshot_path=Path(configured)
+                    if not snapshot_path.is_file():
+                        raise DriverError(
+                            "configured intent graph snapshot does not exist or is not a file: "
+                            f"{configured}"
+                        )
+                    intent_path=configured
+
+            if "max_active" in cfg:
+                configured_max_active=cfg["max_active"]
+                if type(configured_max_active) is not int or configured_max_active < 1:
+                    raise DriverError("stack config max_active must be a positive integer")
+                driver.max_active=configured_max_active
+
+            policy=cfg.get("policy", {})
+            if not isinstance(policy, dict):
+                raise DriverError("stack config policy must be a JSON object")
+            configured_activate_top=policy.get("activate_top", activate_top)
+            if type(configured_activate_top) is not bool:
+                raise DriverError("stack config policy.activate_top must be a JSON boolean")
+            activate_top=configured_activate_top and not args.no_activate
         repos=list(dict.fromkeys(repos))
         if repos: sources.extend(github_pr_objectives(repos))
         if intent_path: sources.extend(intent_graph_objectives(intent_path))

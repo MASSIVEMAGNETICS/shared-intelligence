@@ -6,7 +6,7 @@
     "MASSIVEMAGNETICS/shared-intelligence",
     "MASSIVEMAGNETICS/suno-killer"
   ],
-  "intent_graph_snapshot": "state/intent_graph.json",
+  "intent_graph_snapshot": null,
   "max_active": 3,
   "policy": {
     "activate_top": true,

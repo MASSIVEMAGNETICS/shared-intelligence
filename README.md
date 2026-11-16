@@ -195,3 +195,42 @@ pytest tests/ -v
 | 4 | Co-adaptation | `SymbiosisModel` |
 | 5 | Reflection with self-correction | `SimulationVerifier` |
 | 6 | Continuity under rupture | `LegacyPersistenceLayer` |
+
+
+## Daily Empire Maintenance (review-only)
+
+The existing `bando_driver.py` scoring/synthesis function and `bando_sources.py` GitHub PR adapter remain the source of truth. The scheduled workflow reuses them; it does not introduce a second governor or activation path.
+
+The decision renderer distinguishes an empty registry from open work that has no currently eligible selection (for example, objectives held by novelty quarantine). Both are reported as `NO_ACTIONABLE_OBJECTIVES`, with a reason that preserves the difference; malformed or terminal-state selections fail closed. This is a presentation/validation boundary only and does not alter BANDO_DRIVER scoring, ranking, or activation.
+
+- `bando_maintenance_sources.json` is the read-only workflow's single source list. It covers the active public Empire lanes: Shared Intelligence, VictorOS, victor_empire, victor_llm, Victor.AGI, omni, Dev-Ville, SUNOKILLER, The AI Ear, VICTOR-SSI, MASSIVEMAGNETICS-IP, and the public website repository.
+- Public `SUNOKILLER` is included. `suno-killer` is a separate private repository and is intentionally excluded from this scheduled workflow; the two names are not aliases and must not be consolidated.
+- The workflow passes both `--config bando_maintenance_sources.json` and `--no-activate`. The config also sets `policy.activate_top` to `false`. This collector may rank and render work, but it does not activate objectives, create branches, edit files, open PRs, merge, deploy, or publish releases.
+- The workflow uses the repository-scoped GitHub token with read-only permissions. Private `B_HEARD_STUDIO_LITE` and `suno-killer` are intentionally excluded; adding private sources requires a separately approved least-privilege read credential and workflow review. No secret is created or changed here.
+- Pull-request validation intentionally skips live collection. The scheduled/manual collection only runs from the default branch after the workflow is explicitly reviewed and merged; a green PR test run is not proof of live cross-repository collection or artifact production.
+- `bando_stack.json` is left unchanged. Its local stack activation policy is not the scheduled workflow's read-only policy.
+- The local `bando_stack.json` parser fails closed before source reads: the root must be a JSON object, `schema_version` must be integer `1`, `repositories` must be an array of non-empty `owner/name` strings, `max_active` must be a positive JSON integer when present, `policy` must be an object, and `policy.activate_top` must be an actual JSON boolean. Strings such as `"false"` are not coerced to `true`.
+- Generic `bando_driver.py sync --config ...` treats a non-null `intent_graph_snapshot` as required input unless an explicit `--intent-graph` override is supplied. Missing or non-file snapshots now stop sync before GitHub source reads; intent objectives are never silently omitted. The checked-in `bando_stack.json` sets `intent_graph_snapshot` to `null`, so local/manual sync does not include intent-graph objectives by default. Supply an authoritative snapshot with `--intent-graph <path>` before using intent-graph objectives; do not create placeholder intent data. The scheduled collector is unaffected because it uses `bando_maintenance_sources.json`, which intentionally has no intent-graph snapshot.
+
+
+### Read-only source configuration validation
+
+Before collection, the workflow runs `validate_maintenance_config.py`. It rejects malformed JSON types instead of coercing them: `schema_version` must be integer 1, `repositories` must be a non-empty unique list of exact `owner/name` strings owned by `MASSIVEMAGNETICS`, `max_active` must be a positive integer, and `policy.activate_top` must be the JSON boolean `false`. A configured intent-graph snapshot must exist. The workflow still passes `--no-activate`; this validator is a fail-closed preflight, not a replacement for BANDO_DRIVER or a second execution governor.
+
+Persisted BANDO_DRIVER objectives are validated before ranking or use: identity/action text, state and stage enums, ISO-8601 timestamps, optional evidence/blocker metadata, numeric bounds, and terminal evidence references must satisfy the registry contract. Malformed records fail closed with `ValidationError` rather than surfacing incidental Python type, attribute, or key errors. Persisted objective records must also contain both `created_at` and `updated_at`; dataclass defaults are reserved for new in-memory objectives and must not silently replace missing historical timestamps during registry loading.
+
+
+## BANDO_DRIVER source configuration
+
+The scheduled review-only collector uses `bando_maintenance_sources.json` and passes
+`--no-activate`. The separate local/manual stack uses `bando_stack.json`.
+Its optional `intent_graph_snapshot` is currently `null` because no authoritative
+snapshot is committed in this repository. Supply an actual snapshot with
+`--intent-graph <path>` (or configure an existing file) before using intent-graph
+objectives; do not create placeholder intent data. The PR-based BANDO_DRIVER
+scoring and selection logic is unchanged.
+
+
+### Bounded review-plan output
+
+After the unchanged BANDO_DRIVER sync and \`maintenance_decision.py\` selection, \`maintenance_plan.py\` writes \`maintenance-output/review-plan.json\`. It consumes the existing decision; it does not rescore, rank, mutate the registry, or activate objectives. Each plan is bounded to one selected objective in one repository, distinguishes blocked work from reviewable work, and records the evidence a reviewer must inspect. The scheduled workflow remains read-only: no GitHub writes, merge, deployment, production changes, or secret/credential changes are authorized. The plan is a review contract, not execution permission.
