@@ -107,3 +107,10 @@ def test_cli_rejects_truthy_string_without_writing_anything(tmp_path):
     assert result.returncode == 2
     assert "policy.activate_top must be a JSON boolean" in result.stderr
     assert list(tmp_path.iterdir()) == [path]
+
+
+def test_readme_intent_snapshot_guidance_matches_checked_in_stack():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert BASE["intent_graph_snapshot"] is None
+    assert "sets `intent_graph_snapshot` to `null`" in readme
+    assert "state/intent_graph.json" not in readme
