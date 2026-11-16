@@ -158,3 +158,39 @@ def test_workflow_uses_canonical_read_only_source_config():
     assert "contents: read" in workflow
     assert "pull-requests: read" in workflow
     assert "if: github.event_name != 'pull_request'" in workflow
+
+
+def test_local_stack_config_without_intent_snapshot_is_runnable_read_only(tmp_path):
+    config_path = REPO_ROOT / "bando_stack.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    assert config["intent_graph_snapshot"] is None
+
+    env, registry, _ = _fixture(tmp_path, "empty")
+    command = [
+        sys.executable,
+        str(REPO_ROOT / "bando_driver.py"),
+        "--registry",
+        str(registry),
+        "sync",
+        "--config",
+        str(config_path),
+        "--no-activate",
+    ]
+    result = _run(command, env)
+    assert result.returncode == 0, result.stderr
+    sync = json.loads(result.stdout)
+    assert sync["decision"] is None
+
+    status = _run(
+        [sys.executable, str(REPO_ROOT / "bando_driver.py"),
+         "--registry", str(registry), "status"],
+        env,
+    )
+    assert status.returncode == 0, status.stderr
+    snapshot = json.loads(status.stdout)
+    assert snapshot["open_loops"] == 0
+    assert snapshot["active_count"] == 0
+
+    calls = (tmp_path / "gh_calls.txt").read_text(encoding="utf-8")
+    for repository in config["repositories"]:
+        assert f"repos/{repository}/pulls?state=open&per_page=100" in calls

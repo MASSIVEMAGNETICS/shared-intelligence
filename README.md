@@ -218,3 +218,14 @@ The decision renderer distinguishes an empty registry from open work that has no
 Before collection, the workflow runs `validate_maintenance_config.py`. It rejects malformed JSON types instead of coercing them: `schema_version` must be integer 1, `repositories` must be a non-empty unique list of exact `owner/name` strings owned by `MASSIVEMAGNETICS`, `max_active` must be a positive integer, and `policy.activate_top` must be the JSON boolean `false`. A configured intent-graph snapshot must exist. The workflow still passes `--no-activate`; this validator is a fail-closed preflight, not a replacement for BANDO_DRIVER or a second execution governor.
 
 Persisted BANDO_DRIVER objectives are validated before ranking or use: identity/action text, state and stage enums, ISO-8601 timestamps, optional evidence/blocker metadata, numeric bounds, and terminal evidence references must satisfy the registry contract. Malformed records fail closed with `ValidationError` rather than surfacing incidental Python type, attribute, or key errors. Persisted objective records must also contain both `created_at` and `updated_at`; dataclass defaults are reserved for new in-memory objectives and must not silently replace missing historical timestamps during registry loading.
+
+
+## BANDO_DRIVER source configuration
+
+The scheduled review-only collector uses `bando_maintenance_sources.json` and passes
+`--no-activate`. The separate local/manual stack uses `bando_stack.json`.
+Its optional `intent_graph_snapshot` is currently `null` because no authoritative
+snapshot is committed in this repository. Supply an actual snapshot with
+`--intent-graph <path>` (or configure an existing file) before using intent-graph
+objectives; do not create placeholder intent data. The PR-based BANDO_DRIVER
+scoring and selection logic is unchanged.
