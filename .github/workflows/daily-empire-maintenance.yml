@@ -16,6 +16,7 @@ on:
       - 'tests/test_maintenance_collection.py'
       - 'tests/test_maintenance_config.py'
       - 'tests/test_maintenance_plan.py'
+      - 'tests/test_workflow_action_pins.py'
   workflow_dispatch:
   schedule:
     - cron: "17 12 * * *"
@@ -31,8 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - name: Validate read-only maintenance source config
@@ -41,7 +42,7 @@ jobs:
         run: |
           python -m compileall -q bando_driver.py bando_sources.py maintenance_decision.py maintenance_plan.py validate_maintenance_config.py
           python -m pip install pytest
-          python -m pytest -q tests/test_bando_driver.py tests/test_bando_sources.py tests/test_maintenance_decision.py tests/test_maintenance_collection.py tests/test_maintenance_config.py tests/test_maintenance_plan.py
+          python -m pytest -q tests/test_bando_driver.py tests/test_bando_sources.py tests/test_maintenance_decision.py tests/test_maintenance_collection.py tests/test_maintenance_config.py tests/test_maintenance_plan.py tests/test_workflow_action_pins.py
       - name: Collect bounded objectives (no activation or writes)
         if: github.event_name != 'pull_request'
         env:
@@ -57,7 +58,7 @@ jobs:
           python maintenance_plan.py
       - name: Upload inspection artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: empire-maintenance-review-only
           path: maintenance-output/
