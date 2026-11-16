@@ -53,6 +53,21 @@ def test_repository_list_rejects_noncanonical_owner():
         validate_config(config, base_dir=ROOT)
 
 
+@pytest.mark.parametrize(
+    "duplicate",
+    [
+        "massivemagnetics/shared-intelligence",
+        "MASSIVEMAGNETICS/SHARED-INTELLIGENCE",
+        "massivemagnetics/SHARED-INTELLIGENCE",
+    ],
+)
+def test_repository_list_rejects_case_insensitive_duplicates(duplicate):
+    config = clone_config()
+    config["repositories"].append(duplicate)
+    with pytest.raises(ConfigError, match="duplicate repository entry"):
+        validate_config(config, base_dir=ROOT)
+
+
 def test_schema_version_rejects_boolean_true():
     config = clone_config()
     config["schema_version"] = True
