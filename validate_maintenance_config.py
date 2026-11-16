@@ -40,9 +40,12 @@ def validate_config(raw: Any, *, base_dir: Path | None = None) -> dict[str, Any]
             raise ConfigError(
                 f"repositories[{index}] owner must be {EXPECTED_REPOSITORY_OWNER}"
             )
-        if repository in seen:
-            raise ConfigError(f"duplicate repository entry: {repository}")
-        seen.add(repository)
+        canonical_repository = repository.casefold()
+        if canonical_repository in seen:
+            raise ConfigError(
+                f"duplicate repository entry (case-insensitive): {repository}"
+            )
+        seen.add(canonical_repository)
 
     max_active = raw.get("max_active")
     if type(max_active) is not int or max_active < 1:
