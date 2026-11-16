@@ -9,6 +9,7 @@ from validate_maintenance_config import ConfigError, validate_config
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = json.loads((ROOT / "bando_maintenance_sources.json").read_text(encoding="utf-8"))
+STACK = json.loads((ROOT / "bando_stack.json").read_text(encoding="utf-8"))
 
 
 def clone_config():
@@ -38,7 +39,16 @@ def test_max_active_must_be_positive_json_integer(value):
         validate_config(config, base_dir=ROOT)
 
 
-@pytest.mark.parametrize("value", ["MASSIVEMAGNETICS/repo", [], ["repo"], [1], ["MASSIVEMAGNETICS/repo", "MASSIVEMAGNETICS/repo"]])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "MASSIVEMAGNETICS/repo",
+        [],
+        ["repo"],
+        [1],
+        ["MASSIVEMAGNETICS/repo", "MASSIVEMAGNETICS/repo"],
+    ],
+)
 def test_repository_list_rejects_wrong_shape_malformed_and_duplicate_entries(value):
     config = clone_config()
     config["repositories"] = value
@@ -84,7 +94,12 @@ def test_configured_missing_intent_snapshot_fails_closed():
 
 def test_cli_accepts_current_config():
     result = subprocess.run(
-        [sys.executable, str(ROOT / "validate_maintenance_config.py"), "--config", str(ROOT / "bando_maintenance_sources.json")],
+        [
+            sys.executable,
+            str(ROOT / "validate_maintenance_config.py"),
+            "--config",
+            str(ROOT / "bando_maintenance_sources.json"),
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -99,7 +114,12 @@ def test_cli_rejects_truthy_string_without_writing_anything(tmp_path):
     path = tmp_path / "invalid.json"
     path.write_text(json.dumps(config), encoding="utf-8")
     result = subprocess.run(
-        [sys.executable, str(ROOT / "validate_maintenance_config.py"), "--config", str(path)],
+        [
+            sys.executable,
+            str(ROOT / "validate_maintenance_config.py"),
+            "--config",
+            str(path),
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -111,6 +131,7 @@ def test_cli_rejects_truthy_string_without_writing_anything(tmp_path):
 
 def test_readme_intent_snapshot_guidance_matches_checked_in_stack():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert BASE["intent_graph_snapshot"] is None
+    assert STACK["intent_graph_snapshot"] is None
+    assert "intent_graph_snapshot" not in BASE
     assert "sets `intent_graph_snapshot` to `null`" in readme
     assert "state/intent_graph.json" not in readme
