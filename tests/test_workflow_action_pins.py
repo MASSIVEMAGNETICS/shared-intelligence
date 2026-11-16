@@ -10,8 +10,8 @@ WORKFLOWS = (
     Path(".github/workflows/daily-empire-maintenance.yml"),
     Path(".github/workflows/bando-driver-ci.yml"),
 )
-ACTION_REFERENCE = re.compile(r"^\\s*uses:\\s*([^\\s#]+)", re.MULTILINE)
-IMMUTABLE_COMMIT = re.compile(r"[0-9a-f]{40}\\Z")
+ACTION_REFERENCE = re.compile(r"^\s*uses:\s*([^\s#]+)", re.MULTILINE)
+IMMUTABLE_COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 
 
 def test_maintenance_workflows_pin_actions_to_full_commit_shas() -> None:
