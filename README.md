@@ -229,3 +229,8 @@ snapshot is committed in this repository. Supply an actual snapshot with
 `--intent-graph <path>` (or configure an existing file) before using intent-graph
 objectives; do not create placeholder intent data. The PR-based BANDO_DRIVER
 scoring and selection logic is unchanged.
+
+
+### Bounded review-plan output
+
+After the unchanged BANDO_DRIVER sync and \`maintenance_decision.py\` selection, \`maintenance_plan.py\` writes \`maintenance-output/review-plan.json\`. It consumes the existing decision; it does not rescore, rank, mutate the registry, or activate objectives. Each plan is bounded to one selected objective in one repository, distinguishes blocked work from reviewable work, and records the evidence a reviewer must inspect. The scheduled workflow remains read-only: no GitHub writes, merge, deployment, production changes, or secret/credential changes are authorized. The plan is a review contract, not execution permission.

@@ -8,12 +8,14 @@ on:
       - 'bando_maintenance_sources.json'
       - 'README.md'
       - 'maintenance_decision.py'
+      - 'maintenance_plan.py'
       - 'validate_maintenance_config.py'
       - 'tests/test_bando_driver.py'
       - 'tests/test_bando_sources.py'
       - 'tests/test_maintenance_decision.py'
       - 'tests/test_maintenance_collection.py'
       - 'tests/test_maintenance_config.py'
+      - 'tests/test_maintenance_plan.py'
   workflow_dispatch:
   schedule:
     - cron: "17 12 * * *"
@@ -37,9 +39,9 @@ jobs:
         run: python validate_maintenance_config.py --config bando_maintenance_sources.json
       - name: Verify existing BANDO_DRIVER and scheduled decision renderer
         run: |
-          python -m compileall -q bando_driver.py bando_sources.py maintenance_decision.py validate_maintenance_config.py
+          python -m compileall -q bando_driver.py bando_sources.py maintenance_decision.py maintenance_plan.py validate_maintenance_config.py
           python -m pip install pytest
-          python -m pytest -q tests/test_bando_driver.py tests/test_bando_sources.py tests/test_maintenance_decision.py tests/test_maintenance_collection.py tests/test_maintenance_config.py
+          python -m pytest -q tests/test_bando_driver.py tests/test_bando_sources.py tests/test_maintenance_decision.py tests/test_maintenance_collection.py tests/test_maintenance_config.py tests/test_maintenance_plan.py
       - name: Collect bounded objectives (no activation or writes)
         if: github.event_name != 'pull_request'
         env:
@@ -52,6 +54,7 @@ jobs:
             --no-activate > maintenance-output/sync.json
           python bando_driver.py --registry maintenance-output/registry.json status > maintenance-output/status.json
           python maintenance_decision.py
+          python maintenance_plan.py
       - name: Upload inspection artifacts
         if: always()
         uses: actions/upload-artifact@v4
